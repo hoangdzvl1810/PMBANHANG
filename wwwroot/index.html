@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kho Điện Gia Dụng — Quản lý kho & bán hàng</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+  <div class="app">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="logo">
+        <div class="mark">Đ</div>
+        <div class="name">Điện Gia Dụng<small>Kho &amp; Bán hàng</small></div>
+      </div>
+      <nav class="nav">
+        <div class="nav-label">Tổng quan</div>
+        <a data-view="dashboard" class="active"><span class="ic">▦</span> Dashboard</a>
+        <div class="nav-label">Bán hàng</div>
+        <a data-view="banhang"><span class="ic">＋</span> Bán hàng (POS)</a>
+        <a data-view="hoadon"><span class="ic">▧</span> Hóa đơn bán</a>
+        <div class="nav-label">Danh mục &amp; Kho</div>
+        <a data-view="danhmuc"><span class="ic">☰</span> Quản lý danh mục</a>
+        <a data-view="sanpham"><span class="ic">▤</span> Quản lý sản phẩm <span class="badge"
+            id="lowStockBadge">0</span></a>
+        <div class="nav-label">Khách &amp; Báo cáo</div>
+        <a data-view="khachhang"><span class="ic">◉</span> Khách hàng</a>
+        <a data-view="baocao"><span class="ic">◔</span> Báo cáo</a>
+      </nav>
+      <div class="user">
+        <div class="ava">AD</div>
+        <div><b>Admin</b><span>Quản lý cửa hàng</span></div>
+      </div>
+    </aside>
+
+    <!-- Main Workspace -->
+    <div class="main">
+      <header class="topbar">
+        <div>
+          <h1 id="pageTitle">Dashboard</h1><span class="crumb" id="pageCrumb">Tổng quan cửa hàng</span>
+        </div>
+        <div class="search-global"><span style="color:var(--dim)">⌕</span><input id="globalSearch"
+            placeholder="Tìm nhanh sản phẩm..." oninput="globalSearchHandler(this.value)"></div>
+        <div class="icon-btn" title="Xuất dữ liệu hiện tại (CSV/Excel)" onclick="exportCurrent()">⬇</div>
+        <div class="icon-btn" id="themeToggleBtn" title="Chuyển đổi giao diện Sáng / Tối" onclick="toggleTheme()">🌙
+        </div>
+      </header>
+
+      <div class="content" id="content">
+        <!-- ============ TAB 1: DASHBOARD ============ -->
+        <section id="view-dashboard">
+          <!-- Thanh lọc thời gian Dashboard -->
+          <div class="dash-filter-bar">
+            <div class="df-left">
+              <span class="df-icon">📅</span>
+              <label for="dashTimePreset" class="df-label">Thời gian:</label>
+              <select id="dashTimePreset" class="field df-select" onchange="onDashTimePresetChange()">
+                <option value="today">Hôm nay</option>
+                <option value="yesterday">Hôm qua</option>
+                <option value="last7">7 ngày qua</option>
+                <option value="this_month" selected>Tháng này</option>
+                <option value="last_month">Tháng trước</option>
+                <option value="this_year">Năm nay</option>
+                <option value="all">Toàn bộ thời gian</option>
+                <option value="custom">Tùy chọn khoảng ngày...</option>
+              </select>
+            </div>
+            <div id="dashCustomDateRange" class="df-custom" style="display:none">
+              <span>Từ:</span>
+              <input type="date" id="dashFromDate" class="field" onchange="renderDashboard()">
+              <span>Đến:</span>
+              <input type="date" id="dashToDate" class="field" onchange="renderDashboard()">
+            </div>
+            <div class="df-summary">
+              <span>Đang xem:</span> <b id="dashTimeText">Tháng 10/2026</b>
+            </div>
+          </div>
+
+          <div class="kpi-grid">
+            <div class="kpi">
+              <div class="lbl">Doanh thu <span class="ic blue" style="margin-left:auto">₫</span></div>
+              <div class="val" id="kpiRevenue">0</div>
+              <div class="delta up" id="kpiRevenueSub">▲ Doanh số bán hàng</div>
+            </div>
+            <div class="kpi">
+              <div class="lbl">Lợi nhuận <span class="ic teal" style="margin-left:auto">↑</span></div>
+              <div class="val" id="kpiProfit">0</div>
+              <div class="delta up" id="kpiProfitSub">▲ Lợi nhuận gộp</div>
+            </div>
+            <div class="kpi">
+              <div class="lbl">Đơn hàng <span class="ic amber" style="margin-left:auto">▧</span></div>
+              <div class="val" id="kpiOrders">0</div>
+              <div class="delta" id="kpiOrdersSub">đơn hoàn tất</div>
+            </div>
+            <div class="kpi">
+              <div class="lbl">Giá trị tồn kho <span class="ic red" style="margin-left:auto">▤</span></div>
+              <div class="val" id="kpiStock">0</div>
+              <div class="delta down" id="kpiStockDelta">0 sản phẩm sắp hết</div>
+            </div>
+          </div>
+          <div class="grid-2">
+            <div class="panel">
+              <div class="head">
+                <div class="title">
+                  <h2>Doanh thu theo danh mục</h2><span class="sub" id="chartCatSub">Tỷ trọng doanh thu</span>
+                </div>
+              </div>
+              <div class="chart-wrap" style="height:320px"><canvas id="chartCategory" role="img"
+                  aria-label="Biểu đồ danh mục"></canvas></div>
+            </div>
+            <div class="panel">
+              <div class="head">
+                <div class="title">
+                  <h2>Top sản phẩm bán chạy</h2><span class="sub" id="topProdSub">Theo số lượng bán</span>
+                </div>
+              </div>
+              <div class="table-wrap" id="topProducts"></div>
+            </div>
+          </div>
+          <div class="panel" style="margin-bottom:20px">
+            <div class="head">
+              <div class="title">
+                <h2>Cảnh báo tồn kho thấp</h2><span class="sub">Dưới mức an toàn (≤ 5 đơn vị)</span>
+              </div>
+            </div>
+            <div class="table-wrap" id="lowStockList"></div>
+          </div>
+        </section>
+
+        <!-- ============ TAB 2: BÁN HÀNG (POS) ============ -->
+        <section id="view-banhang" style="display:none">
+          <div class="pos">
+            <div class="pos-left">
+              <div class="panel" style="margin-bottom:14px">
+                <div class="toolbar">
+                  <div class="search" style="max-width:320px"><span style="color:var(--dim)">⌕</span><input
+                      id="posSearch" placeholder="Tìm mã SP, tên (VD: TL, 001, pana...)" oninput="renderPosProducts()"
+                      onkeydown="onPosSearchKeyDown(event)"></div>
+                  <select class="field" id="posCat" onchange="renderPosProducts()">
+                    <option value="">Tất cả danh mục</option>
+                  </select>
+                </div>
+                <div class="prod-grid" id="posProducts"></div>
+              </div>
+            </div>
+            <div class="pos-right">
+              <div class="panel cart-panel">
+                <div class="head-cart">
+                  <h2>Hóa đơn hiện tại</h2><button type="button" class="btn ghost sm" onclick="clearCart()">Xóa
+                    hết</button>
+                </div>
+                <div class="form-row" style="margin-bottom:10px">
+                  <div style="position:relative"><label>Khách hàng *</label><input id="posCustomer"
+                      placeholder="Tìm tên hoặc SĐT (VD: 09...)" autocomplete="off" value="Khách lẻ"
+                      onfocus="this.select(); openCustomerMenu()" oninput="onCustomerInput()"
+                      onkeydown="onCustomerKeyDown(event)" onblur="closeCustomerMenu(); onPosCustomerChange()">
+                    <div id="customerMenu" class="cust-menu" style="display:none"></div>
+                    <div id="posCustError" class="invalid-feedback" style="display:none"></div>
+                  </div>
+                  <div><label>Trạng thái</label><select id="posStatus">
+                      <option value="paid">Đã thanh toán</option>
+                      <option value="pending">Chưa thanh toán</option>
+                    </select></div>
+                </div>
+                <!-- Box tạo nhanh khách hàng khi SĐT chưa có trong hệ thống -->
+                <div id="quickAddCustBox"
+                  style="display:none;margin:-4px 0 10px;padding:9px 12px;background:var(--brand-soft);border:1px dashed var(--brand);border-radius:8px">
+                  <div
+                    style="font-size:12px;font-weight:600;color:var(--brand);margin-bottom:6px;display:flex;align-items:center;justify-content:space-between">
+                    <span>➕ SĐT chưa có — Tạo khách mới:</span>
+                    <div style="display:flex;align-items:center;gap:8px">
+                      <span style="font-size:12px;color:var(--txt)">SĐT: <b id="quickCustPhoneDisplay"
+                          style="color:var(--brand)"></b></span>
+                      <span class="close-x" style="font-size:13px;cursor:pointer;line-height:1;padding:2px 4px"
+                        onclick="closeQuickAddBox()" title="Bỏ qua">✕</span>
+                    </div>
+                  </div>
+                  <div style="display:flex;gap:6px">
+                    <input id="quickCustName" placeholder="Nhập họ tên khách hàng *"
+                      style="flex:1;background:#fff;font-size:13px;padding:6px 10px;border:1px solid var(--line2);border-radius:6px"
+                      onkeydown="if(event.key==='Enter'){event.preventDefault();saveQuickCustomer();}">
+                    <button type="button" class="btn sm" onclick="saveQuickCustomer()" style="white-space:nowrap">✓ Lưu
+                      &amp; Chọn</button>
+                  </div>
+                </div>
+                <div id="custBadge" style="display:none;margin:-4px 0 10px"></div>
+                <div id="discountBox" style="display:none;margin-bottom:10px">
+                  <div class="form-row">
+                    <div><label>Chiết khấu (%)</label><input id="posDiscountPct" type="number" min="0" max="100"
+                        step="0.1" value="0" oninput="onDiscountChange()" placeholder="Ví dụ: 10"></div>
+                    <div><label>hoặc tiền chiết khấu (₫)</label><input id="posDiscountAmt" type="number" min="0"
+                        step="1000" value="0" oninput="onDiscountAmtChange()" placeholder="Ví dụ: 50000"></div>
+                  </div>
+                </div>
+                <div id="posCart" style="max-height:300px;overflow-y:auto">
+                  <div class="empty" style="padding:26px 0">Chọn sản phẩm bên trái để thêm vào giỏ</div>
+                </div>
+                <div class="total-box">
+                  <div class="row"><span class="muted">Tổng tiền hàng</span><span id="posRevenue">0₫</span></div>
+                  <div class="row" id="discountRow" style="display:none"><span class="muted">Chiết khấu</span><span
+                      id="posDiscount" style="color:var(--red)">−0₫</span></div>
+                  <div class="row"><span class="muted">Tổng giá vốn</span><span id="posCost">0₫</span></div>
+                  <div class="row grand"><span>Khách thanh toán</span><span id="posPay"
+                      style="color:var(--brand)">0₫</span></div>
+                  <div class="row"><span class="muted">Lợi nhuận</span><span id="posProfit"
+                      style="color:var(--teal)">0₫</span></div>
+                </div>
+                <button type="button" class="btn green" style="width:100%;justify-content:center;margin-top:12px"
+                  onclick="savePosInvoice()">✓ Lưu hóa đơn</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ TAB 3: HÓA ĐƠN BÁN ============ -->
+        <section id="view-hoadon" style="display:none">
+          <div class="panel">
+            <div class="head">
+              <div class="title">
+                <h2>Hóa đơn bán hàng</h2><span class="sub" id="invoiceCount"></span>
+              </div>
+              <div style="display:flex;gap:8px"><button type="button" class="btn ghost" id="btnExportSelected"
+                  onclick="exportSelectedInvoices()">⬇ Xuất Excel (đã chọn)</button><button type="button"
+                  class="btn green" onclick="switchView('banhang')">＋ Tạo hóa đơn</button></div>
+            </div>
+            <div class="table-toolbar">
+              <div class="search"><span style="color:var(--dim)">⌕</span><input id="invoiceSearch"
+                  placeholder="Tìm mã HĐ, khách hàng..." oninput="renderInvoices()"></div>
+              <select class="field" id="invoiceStatus" onchange="renderInvoices()">
+                <option value="">Tất cả trạng thái</option>
+                <option value="paid">Đã thanh toán</option>
+                <option value="pending">Chưa thanh toán</option>
+                <option value="cancel">Đã hủy</option>
+              </select>
+              <input type="month" class="field" id="invoiceMonth" onchange="renderInvoices()"><span id="selectedInfo"
+                class="muted" style="font-size:12px;margin-left:auto">Chưa chọn hóa đơn nào</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width:34px"><input type="checkbox" id="checkAll" onchange="toggleSelectAll(this.checked)"
+                        title="Chọn tất cả"></th>
+                    <th>Mã HĐ</th>
+                    <th>Khách hàng</th>
+                    <th>Ngày tạo</th>
+                    <th style="text-align:right">Tổng tiền</th>
+                    <th style="text-align:right">Lợi nhuận</th>
+                    <th style="text-align:center">SL</th>
+                    <th style="text-align:center">Trạng thái</th>
+                    <th style="text-align:center">Đã xuất</th>
+                    <th style="text-align:center">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody id="invoiceBody"></tbody>
+              </table>
+            </div>
+            <div class="pager" id="invoicePager"></div>
+          </div>
+        </section>
+
+        <!-- ============ TAB 4: QUẢN LÝ DANH MỤC ============ -->
+        <section id="view-danhmuc" style="display:none">
+          <div class="panel">
+            <div class="head">
+              <div class="title">
+                <h2>Quản lý danh mục sản phẩm</h2><span class="sub" id="catCount"></span>
+              </div><button type="button" class="btn" onclick="openCategoryModal()">＋ Thêm danh mục</button>
+            </div>
+            <div class="table-toolbar">
+              <div class="search"><span style="color:var(--dim)">⌕</span><input id="catSearch"
+                  placeholder="Tìm mã hoặc tên danh mục (VD: DM, điện...)" oninput="renderCategories()"></div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Mã DM</th>
+                    <th>Tên danh mục</th>
+                    <th>Kiểu hàng hóa</th>
+                    <th>Đơn vị bán</th>
+                    <th style="text-align:center">Số sản phẩm</th>
+                    <th style="text-align:right">Tồn kho</th>
+                    <th style="text-align:center">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody id="catBody"></tbody>
+              </table>
+            </div>
+            <div class="pager" id="catPager"></div>
+          </div>
+        </section>
+
+        <!-- ============ TAB 5: QUẢN LÝ SẢN PHẨM ============ -->
+        <section id="view-sanpham" style="display:none">
+          <div class="panel">
+            <div class="head">
+              <div class="title">
+                <h2>Quản lý sản phẩm &amp; Tồn kho</h2><span class="sub" id="khoCount"></span>
+              </div>
+              <div style="display:flex;gap:8px"><button type="button" class="btn ghost" onclick="exportInventory()">⬇
+                  Xuất Excel</button><button type="button" class="btn" onclick="openProductModal()">＋ Thêm sản
+                  phẩm</button></div>
+            </div>
+            <div class="table-toolbar">
+              <div class="search"><span style="color:var(--dim)">⌕</span><input id="khoSearch"
+                  placeholder="Tìm mã SP, tên, hãng (VD: TL, 001, pana...)" oninput="renderInventory()"></div>
+              <select class="field" id="filterCat" onchange="renderInventory()">
+                <option value="">Tất cả danh mục</option>
+              </select>
+              <select class="field" id="filterBrand" onchange="renderInventory()">
+                <option value="">Tất cả thương hiệu</option>
+              </select>
+              <select class="field" id="filterStatus" onchange="renderInventory()">
+                <option value="">Tình trạng tồn</option>
+                <option value="ok">Còn hàng</option>
+                <option value="low">Sắp hết</option>
+                <option value="out">Hết hàng</option>
+              </select>
+              <select class="field" id="sortBy" onchange="renderInventory()">
+                <option value="name">Tên A-Z</option>
+                <option value="price-desc">Giá bán cao → thấp</option>
+                <option value="price-asc">Giá bán thấp → cao</option>
+                <option value="stock-asc">Tồn kho thấp → cao</option>
+                <option value="stock-desc">Tồn kho cao → thấp</option>
+              </select>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Mã SP</th>
+                    <th>Tên sản phẩm</th>
+                    <th>Danh mục</th>
+                    <th>Thương hiệu</th>
+                    <th style="text-align:right">Giá nhập</th>
+                    <th style="text-align:right">Giá bán</th>
+                    <th style="text-align:center">Đơn vị</th>
+                    <th style="text-align:center">Tồn</th>
+                    <th style="text-align:center">Trạng thái</th>
+                    <th style="text-align:center">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody id="khoBody"></tbody>
+              </table>
+            </div>
+            <div class="pager" id="khoPager"></div>
+          </div>
+        </section>
+
+
+        <!-- ============ TAB 7: KHÁCH HÀNG ============ -->
+        <section id="view-khachhang" style="display:none">
+          <div class="panel">
+            <div class="head">
+              <div class="title">
+                <h2>Khách hàng</h2><span class="sub" id="customerCount"></span>
+              </div><button type="button" class="btn" onclick="openAddCustomer()">＋ Thêm khách hàng</button>
+            </div>
+            <div class="table-toolbar">
+              <div class="search"><span style="color:var(--dim)">⌕</span><input id="customerSearch"
+                  placeholder="Tìm tên hoặc số điện thoại..." oninput="renderCustomers()"></div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Mã KH</th>
+                    <th>Tên khách hàng</th>
+                    <th>Điện thoại</th>
+                    <th style="text-align:center">Loại</th>
+                    <th style="text-align:center">Số đơn</th>
+                    <th style="text-align:right">Tổng chi tiêu</th>
+                    <th style="text-align:center">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody id="customerBody"></tbody>
+              </table>
+            </div>
+            <div class="pager" id="customerPager"></div>
+          </div>
+        </section>
+
+        <!-- ============ TAB 8: BÁO CÁO THỐNG KÊ ============ -->
+        <section id="view-baocao" style="display:none">
+          <div class="panel">
+            <div class="head">
+              <div class="title">
+                <h2>Bảng tổng hợp kinh doanh</h2><span class="sub">Theo danh mục sản phẩm</span>
+              </div><button type="button" class="btn ghost" onclick="exportReport()">⬇ Xuất Excel</button>
+            </div>
+            <div class="table-wrap" id="reportBody"></div>
+            <div class="pager" id="reportPager"></div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ MODALS & POPUPS ============ -->
+  <div class="overlay" id="categoryModal">
+    <div class="modal">
+      <div class="m-head">
+        <h3 id="catModalTitle">Thêm danh mục</h3><span class="close-x" onclick="closeModal('categoryModal')">✕</span>
+      </div>
+      <div class="m-body">
+        <div class="form-row one">
+          <div><label>Tên danh mục *</label><input id="catName" placeholder="Ví dụ: Tủ lạnh" required maxlength="100">
+          </div>
+        </div>
+        <div class="form-row">
+          <div><label>Kiểu hàng hóa *</label><select id="catType" onchange="onCatTypeChange()">
+              <option value="quantity">Số lượng (đếm)</option>
+              <option value="weight">Cân nặng</option>
+              <option value="length">Độ dài</option>
+              <option value="area">Diện tích</option>
+              <option value="volume">Thể tích</option>
+            </select></div>
+          <div><label>Đơn vị bán *</label><input id="catUnit" list="unitList" placeholder="Ví dụ: cái" required
+              maxlength="20"><datalist id="unitList"></datalist></div>
+        </div>
+        <div class="form-row one">
+          <div><label>Mô tả ghi chú</label><input id="catDesc" placeholder="Mô tả ngắn (tùy chọn)" maxlength="255">
+          </div>
+        </div>
+      </div>
+      <div class="m-foot"><button type="button" class="btn ghost"
+          onclick="closeModal('categoryModal')">Hủy</button><button type="button" class="btn" onclick="saveCategory()">✓
+          Lưu danh mục</button></div>
+    </div>
+  </div>
+
+  <div class="overlay" id="productModal">
+    <div class="modal">
+      <div class="m-head">
+        <h3 id="prodModalTitle">Thêm sản phẩm</h3><span class="close-x" onclick="closeModal('productModal')">✕</span>
+      </div>
+      <div class="m-body">
+        <div class="form-row one">
+          <div><label>Tên sản phẩm *</label><input id="prodName" placeholder="Ví dụ: Tủ lạnh Panasonic 320L" required
+              maxlength="150"></div>
+        </div>
+        <div class="form-row">
+          <div><label>Danh mục *</label><select id="prodCat" onchange="onProdCatChange()"></select></div>
+          <div><label>Thương hiệu</label><input id="prodBrand" placeholder="Ví dụ: Panasonic" maxlength="80"></div>
+        </div>
+        <div class="form-row">
+          <div><label>Giá nhập (₫) *</label><input id="prodCost" type="number" min="0" step="1000" value="0" required>
+          </div>
+          <div><label>Giá bán (₫) *</label><input id="prodPrice" type="number" min="0" step="1000" value="0" required>
+          </div>
+        </div>
+        <div class="form-row">
+          <div><label>Số lượng tồn kho *</label><input id="prodStock" type="number" min="0" step="1" value="0" required>
+          </div>
+          <div><label>Đơn vị tính</label><input id="prodUnit" disabled placeholder="—"></div>
+        </div>
+        <div class="form-row one">
+          <div><label>Quy cách / ghi chú đơn vị đo</label><input id="prodSpec"
+              placeholder="Ví dụ: 1 bao = 25kg, 1 cuộn = 50m..." maxlength="200"></div>
+        </div>
+      </div>
+      <div class="m-foot"><button type="button" class="btn ghost"
+          onclick="closeModal('productModal')">Hủy</button><button type="button" class="btn" onclick="saveProduct()">✓
+          Lưu sản phẩm</button></div>
+    </div>
+  </div>
+
+  <div class="overlay" id="customerModal">
+    <div class="modal">
+      <div class="m-head">
+        <h3 id="custModalTitle">Thêm khách hàng</h3><span class="close-x" onclick="closeModal('customerModal')">✕</span>
+      </div>
+      <div class="m-body">
+        <div class="form-row one">
+          <div><label>Họ và tên khách hàng *</label><input id="custName" placeholder="Ví dụ: Nguyễn Văn An" required
+              maxlength="100"></div>
+        </div>
+        <div class="form-row one">
+          <div><label>Số điện thoại <span style="font-size:11px;color:var(--muted)">(Chỉ gồm 10 chữ số, bắt đầu bằng
+                0)</span></label><input id="custPhone" type="tel" placeholder="Ví dụ: 0912345678" maxlength="10"
+              oninput="onCustPhoneInput(this)">
+            <div id="custPhoneError" class="invalid-feedback" style="display:none"></div>
+          </div>
+        </div>
+        <div class="form-row one">
+          <div><label>Loại khách hàng *</label><select id="custType">
+              <option value="retail">Khách lẻ (mua thông thường)</option>
+              <option value="agent">Đại lý (mua sỉ, hưởng chiết khấu)</option>
+            </select></div>
+        </div>
+      </div>
+      <div class="m-foot"><button type="button" class="btn ghost"
+          onclick="closeModal('customerModal')">Hủy</button><button type="button" class="btn" onclick="saveCustomer()">✓
+          Lưu khách hàng</button></div>
+    </div>
+  </div>
+
+  <div class="overlay" id="invViewModal">
+    <div class="modal" style="width:620px;background:var(--bg)">
+      <div class="m-head">
+        <h3>Hóa đơn bán hàng</h3><span class="close-x" onclick="closeModal('invViewModal')">✕</span>
+      </div>
+      <div class="m-body" style="padding:20px">
+        <div id="printArea"></div>
+        <div class="inv-printopts"><label>Khổ giấy in</label><select id="printPaper"
+            onchange="setPrintPaper(this.value)">
+            <option value="A4">A4 (210 × 297 mm)</option>
+            <option value="A5">A5 (148 × 210 mm)</option>
+            <option value="A3">A3 (297 × 420 mm)</option>
+          </select></div>
+        <div class="inv-actions"><button type="button" class="btn ghost" onclick="printInvoice()">🖨 In hóa
+            đơn</button><button type="button" class="btn" onclick="exportOneInvoice()">⬇ Xuất Excel</button></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <!-- Scripts Module Architecture (Offline Chart.js & Modular JS) -->
+  <script src="lib/chart.umd.js"></script>
+   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/pos.js"></script>
+  <script src="js/app.js"></script>
+ 
+</body>
+
+</html>
