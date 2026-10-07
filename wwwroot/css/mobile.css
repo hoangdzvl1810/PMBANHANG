@@ -1,0 +1,509 @@
+/* ==========================================================================
+   PMBANHANG - GIAO DIỆN ĐIỆN THOẠI / BẢN XEM SỐ LIỆU (mobile.css)
+   File này CHỈ được nạp khi: màn hình <= 768px, HOẶC bản web chạy trên
+   trình duyệt (không phải app desktop WebView2) - xem <head> của index.html.
+   ========================================================================== */
+
+    html,
+    body {
+      height: auto;
+      min-height: 100%;
+    }
+
+    body {
+      font-size: 14px;
+      -webkit-text-size-adjust: 100%;
+    }
+
+    .app {
+      height: 100dvh;
+      min-height: 100vh;
+    }
+
+    /* --- Sidebar trượt từ trái --- */
+    .sidebar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 264px;
+      min-width: 264px;
+      z-index: 45;
+      transform: translateX(-100%);
+      transition: transform .25s ease;
+      box-shadow: 4px 0 24px rgba(0, 0, 0, .18);
+      overflow-y: auto;
+      padding: 18px 12px calc(18px + env(safe-area-inset-bottom, 0px));
+    }
+
+    body.sidebar-open .sidebar {
+      transform: translateX(0);
+    }
+
+    .nav a {
+      padding: 11px 12px;
+      font-size: 14px;
+    }
+
+    .nav a .ic {
+      width: 18px;
+      height: 18px;
+      flex: 0 0 18px;
+    }
+
+    /* --- Topbar gọn, dính trên cùng --- */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      height: auto;
+      min-height: 54px;
+      padding: 8px 12px;
+      padding-top: calc(8px + env(safe-area-inset-top, 0px));
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .menu-toggle {
+      display: none;
+    }
+
+    /* --- Thanh tab dưới cùng --- */
+    .tabbar {
+      display: flex;
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 50;
+      background: var(--panel);
+      border-top: 1px solid var(--line);
+      padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+      box-shadow: 0 -2px 14px rgba(0, 0, 0, .06);
+    }
+
+    .tab-item {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      padding: 6px 2px;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      font-family: inherit;
+      font-size: 10.5px;
+      font-weight: 600;
+      cursor: pointer;
+      border-radius: 10px;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .tab-item .tab-ic {
+      font-size: 17px;
+      line-height: 1;
+    }
+
+    .tab-item.active {
+      color: var(--brand);
+    }
+
+    .tab-item.active .tab-ic {
+      transform: translateY(-1px);
+    }
+
+    /* --- Trên điện thoại không bán hàng: ẩn mục POS khỏi menu --- */
+    .nav a[data-view="banhang"],
+    .nav-label[data-group="pos"] {
+      display: none !important;
+    }
+
+    /* Ẩn mọi nút mở màn hình bán hàng (ví dụ "＋ Tạo hóa đơn" trong Hóa đơn bán) */
+    [onclick*="switchView('banhang')"] {
+      display: none !important;
+    }
+
+    .topbar .tb-title {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .topbar h1 {
+      font-size: 15px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .topbar .crumb {
+      display: none;
+    }
+
+    .search-global {
+      display: none;
+    }
+
+    .sync-indicator {
+      padding: 6px 9px;
+      margin-left: auto;
+    }
+
+    .sync-indicator .sync-text {
+      display: none;
+    }
+
+    .icon-btn {
+      width: 38px;
+      height: 38px;
+    }
+
+    /* --- Nội dung --- */
+    .content {
+      padding: 12px 12px calc(88px + env(safe-area-inset-bottom, 0px));
+    }
+
+    /* --- Lưới về 1 cột --- */
+    .kpi-grid,
+    .grid-2,
+    .grid-21,
+    .pos,
+    .stat-grid {
+      grid-template-columns: 1fr !important;
+    }
+
+    /* --- Trang Doanh thu / Dư nợ: KPI 2 cột cho gọn --- */
+    .kpi-grid.kpi-mob2 {
+      grid-template-columns: repeat(2, 1fr) !important;
+      gap: 10px;
+    }
+
+    .kpi-grid {
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .kpi {
+      padding: 13px 14px;
+    }
+
+    .kpi .val {
+      font-size: 22px;
+    }
+
+    .panel {
+      padding: 14px;
+    }
+
+    .grid-2,
+    .grid-21 {
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .chart-wrap {
+      height: 230px !important;
+    }
+
+    /* --- Thanh lọc Dashboard --- */
+    .dash-filter-bar {
+      padding: 10px 12px;
+      gap: 8px;
+    }
+
+    .df-left {
+      flex-wrap: wrap;
+      gap: 6px;
+      width: 100%;
+    }
+
+    .df-summary {
+      margin-left: 0;
+      width: 100%;
+    }
+
+    .df-select,
+    .df-custom input[type="date"] {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .df-custom {
+      width: 100%;
+      flex-wrap: wrap;
+    }
+
+    /* --- Bảng: cuộn ngang, chữ không xuống dòng --- */
+    .table-wrap,
+    .panel .table-wrap {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      margin: 0 -14px;
+      padding: 0 14px;
+    }
+
+    table {
+      min-width: 520px;
+    }
+
+    thead th,
+    tbody td {
+      padding: 9px 10px;
+    }
+
+    /* --- POS: sản phẩm 2 cột, giỏ hàng không dính --- */
+    .prod-grid {
+      grid-template-columns: repeat(2, 1fr) !important;
+      gap: 9px;
+    }
+
+    .prod-card {
+      padding: 10px;
+    }
+
+    .prod-card .pname {
+      font-size: 12.5px;
+      min-height: 34px;
+    }
+
+    .prod-card .pprice {
+      font-size: 13px;
+    }
+
+    .pos-left .toolbar {
+      gap: 6px;
+    }
+
+    .pos-left .toolbar .search {
+      max-width: 100% !important;
+      width: 100%;
+      flex: 1 1 100%;
+    }
+
+    .pos-left .toolbar select.field {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .cart-panel {
+      position: static;
+      height: auto;
+      max-height: none;
+      overflow: visible;
+    }
+
+    .cart-panel > #posCart,
+    .cart-panel > .pos-cart-scroll {
+      flex: none;
+      max-height: none;
+      overflow: visible;
+      padding-right: 0;
+    }
+
+    .line-disc {
+      flex-wrap: wrap;
+    }
+
+    .line-disc-input {
+      width: 64px;
+    }
+
+    .agent-disc-quick {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .agent-disc-quick .adq-right {
+      margin-left: 0;
+    }
+
+    .agent-disc-quick input {
+      flex: 1;
+      width: auto;
+    }
+
+    .quick-cash-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .btn-chip {
+      padding: 7px 10px;
+      font-size: 12px;
+    }
+
+    .qty-ctrl button {
+      width: 30px;
+      height: 30px;
+      font-size: 15px;
+    }
+
+    .qty-ctrl input {
+      width: 44px;
+      padding: 4px;
+    }
+
+    .cart-line {
+      gap: 8px;
+    }
+
+    /* --- Modal toàn màn hình, cuộn dọc --- */
+    .overlay {
+      padding: 0;
+      align-items: flex-end;
+    }
+
+    .modal,
+    .modal.wide {
+      width: 100%;
+      max-width: 100%;
+      max-height: 94dvh;
+      border-radius: 16px 16px 0 0;
+    }
+
+    .modal .m-head {
+      padding: 14px 16px;
+    }
+
+    .modal .m-body {
+      padding: 16px;
+    }
+
+    .modal .m-foot {
+      padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+      flex-wrap: wrap;
+    }
+
+    .modal .m-foot .btn {
+      flex: 1;
+      justify-content: center;
+    }
+
+    .form-row {
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+
+    /* --- Trang Cài đặt --- */
+    .panel[style*="max-width:900px"] {
+      max-width: 100% !important;
+    }
+
+    /* --- Hóa đơn xem trước --- */
+    .inv-paper {
+      padding: 14px !important;
+    }
+
+    .inv-paper table.inv-tbl th,
+    .inv-paper table.inv-tbl td {
+      padding: 5px 4px !important;
+      font-size: 12px;
+    }
+
+    .qr-preview-box {
+      padding: 12px;
+    }
+
+    .qr-preview-img {
+      width: 120px;
+      height: 120px;
+    }
+
+    /* --- Nút hành động in phiếu --- */
+    .inv-actions,
+    #invStatusActions {
+      flex-wrap: wrap;
+      gap: 8px !important;
+    }
+
+    .inv-actions .btn {
+      flex: 1;
+      justify-content: center;
+    }
+
+    .inv-printopts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .inv-printopts select {
+      flex: 1;
+      min-width: 0;
+    }
+
+    /* --- Toast --- */
+    .toast {
+      left: 12px;
+      right: 12px;
+      transform: none;
+      bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+      text-align: center;
+    }
+
+/* Điện thoại nhỏ: sản phẩm 1 cột cho dễ bấm */
+@media(max-width:420px) {
+    .prod-grid {
+      grid-template-columns: 1fr !important;
+    }
+
+    .kpi .val {
+      font-size: 20px;
+    }
+
+    .kpi-grid.kpi-mob2 .kpi .val {
+      font-size: 18px;
+    }
+
+    .kpi-grid.kpi-mob2 .kpi {
+      padding: 12px;
+    }
+
+    .sheet-grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+
+    .content {
+      padding: 10px 10px calc(88px + env(safe-area-inset-bottom, 0px));
+    }
+}
+
+/* ===== Khung điện thoại khi mở bản web trên màn hình rộng ===== */
+html.mobile-shell body {
+  background: #e6e9ef;
+}
+
+html.mobile-shell body.dark {
+  background: #0a0c10;
+}
+
+html.mobile-shell .app {
+  max-width: 520px;
+  margin: 0 auto;
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+}
+
+html.mobile-shell .tabbar {
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 520px;
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+}
+
+html.mobile-shell .sheet {
+  max-width: 520px;
+}
+
+/* Bản xem số liệu không có sidebar — menu thay bằng tab dưới cùng + sheet "Thêm" */
+html.mobile-shell .sidebar {
+  display: none !important;
+}
+
+html.mobile-shell .sidebar-backdrop {
+  display: none !important;
+}

@@ -10,6 +10,9 @@
     <!-- Thêm 2 dòng này để cố định chế độ đóng gói tự chứa runtime -->
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+
+    <!-- WebView2 kéo theo cả assembly WPF nên MSBuild báo trùng WindowsBase (vô hại với WinForms) -->
+    <MSBuildWarningsAsMessages>MSB3277</MSBuildWarningsAsMessages>
   </PropertyGroup>
 
   <ItemGroup>

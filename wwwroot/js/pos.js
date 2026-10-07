@@ -1,12 +1,9 @@
 /* ==========================================================================
    PMBANHANG - POS & INVOICE MODULE (pos.js)
-   Logic bán hàng (POS), giỏ hàng, tính chiết khấu, in ấn & xuất hóa đơn
+   Bán hàng (POS), giỏ hàng, chiết khấu, in ấn, thu nợ, hủy/hoàn hàng
    ========================================================================== */
 
 let cart = [];
-let discountMode = 'pct'; // 'pct' hoặc 'amt'
-let discountPct = 0;
-let discountAmt = 0;
 let viewingInvoiceId = null;
 let printPaper = 'A4';
 
@@ -14,6 +11,7 @@ const PAPER_SIZES = {
   A4: { page: 'A4', preview: '500px' },
   A5: { page: 'A5', preview: '380px' },
   A3: { page: 'A3', preview: '580px' },
+  K80: { page: '80mm auto', preview: '320px', isThermal: true },
 };
 
 /* ===== Thoát ký tự HTML an toàn ===== */
@@ -34,17 +32,12 @@ function highlightPhoneMatch(phoneStr, qDigits) {
   const matchIdx = cleanPhone.indexOf(qDigits);
   if (matchIdx === -1) return escapeHtml(phoneStr);
 
-  let digitCount = 0;
-  let startChar = -1;
-  let endChar = -1;
+  let digitCount = 0, startChar = -1, endChar = -1;
   for (let i = 0; i < phoneStr.length; i++) {
     if (/\d/.test(phoneStr[i])) {
       if (digitCount === matchIdx && startChar === -1) startChar = i;
       digitCount++;
-      if (digitCount === matchIdx + qDigits.length) {
-        endChar = i + 1;
-        break;
-      }
+      if (digitCount === matchIdx + qDigits.length) { endChar = i + 1; break; }
     }
   }
 
@@ -54,7 +47,6 @@ function highlightPhoneMatch(phoneStr, qDigits) {
     const after = escapeHtml(phoneStr.slice(endChar));
     return `${before}<b style="color:var(--brand);font-weight:700;text-decoration:underline">${matched}</b>${after}`;
   }
-
   return escapeHtml(phoneStr);
 }
 
@@ -74,101 +66,41 @@ function posRevenueAmount() {
   }, 0);
 }
 
-/* ===== Tính tiền chiết khấu thực tế ===== */
-function getDiscountAmt() {
-  const rev = posRevenueAmount();
-  let amt = discountMode === 'pct' ? Math.round((rev * discountPct) / 100) : discountAmt;
-  if (amt > rev) amt = rev;
-  if (amt < 0 || isNaN(amt)) amt = 0;
-  discountAmt = amt;
-  return amt;
+/* ===== Chiết khấu theo TỪNG MÓN HÀNG (chỉ dành cho đại lý) ===== */
+/* Mỗi dòng trong giỏ có `discPct` riêng. Tiền chiết khấu = giá trị dòng × % của dòng. */
+function cartLineDiscAmt(c) {
+  const p = findP(c.id);
+  if (!p) return 0;
+  const pct = Number(c.discPct) || 0;
+  return Math.round((p.price * c.qty * pct) / 100);
 }
 
-/* ===== Kiểm tra xem chuỗi có phải là số điện thoại hợp lệ (chuỗi chỉ gồm các chữ số, độ dài 10 kí tự, bắt đầu bằng 0) ===== */
+function getDiscountAmt() {
+  return cart.reduce((s, c) => s + cartLineDiscAmt(c), 0);
+}
+
+/* Giá trị sau chiết khấu của một dòng (dùng để hiển thị) */
+function cartLineNet(c) {
+  const p = findP(c.id);
+  if (!p) return 0;
+  return Math.max(0, p.price * c.qty - cartLineDiscAmt(c));
+}
+
 function isFullPhoneNumber(str) {
   if (!str) return false;
-  const trimmed = String(str).trim();
-  return /^0\d{9}$/.test(trimmed);
+  return /^0\d{9}$/.test(String(str).trim());
 }
 
 function formatPhone(digits) {
-  let d = (digits || '').replace(/\D/g, '');
-  if (d.length === 10) {
-    return `${d.slice(0, 4)} ${d.slice(4, 7)} ${d.slice(7)}`;
-  }
+  const d = (digits || '').replace(/\D/g, '');
+  if (d.length === 10) return `${d.slice(0, 4)} ${d.slice(4, 7)} ${d.slice(7)}`;
   return d;
 }
 
-/* ===== Xử lý khi thay đổi khách hàng ở ô tìm kiếm ===== */
-function onPosCustomerChange() {
-  const custInput = document.getElementById('posCustomer');
-  if (!custInput) return;
-  const val = (custInput.value || '').trim();
-  const errEl = document.getElementById('posCustError');
-  const badge = document.getElementById('custBadge');
-  const quickBox = document.getElementById('quickAddCustBox');
+/* ==========================================================================
+   Ô TÌM KIẾM KHÁCH HÀNG TRONG POS
+   ========================================================================== */
 
-  // Nếu người dùng nhập số (bắt đầu bằng số hoặc chỉ gồm số):
-  if (/^\d/.test(val) || /^\d+$/.test(val)) {
-    const pCheck = validatePhoneNumber(val, false);
-    if (!pCheck.valid) {
-      custInput.classList.add('is-invalid');
-      if (errEl) {
-        errEl.textContent = pCheck.error;
-        errEl.style.display = 'block';
-      }
-      toast(pCheck.error);
-      if (quickBox) quickBox.style.display = 'none';
-      if (badge) badge.style.display = 'none';
-      return;
-    }
-  }
-
-  // Nếu hợp lệ hoặc không phải SĐT thì xóa trạng thái lỗi
-  custInput.classList.remove('is-invalid');
-  if (errEl) {
-    errEl.textContent = '';
-    errEl.style.display = 'none';
-  }
-
-  const c = findCustomer(val);
-
-  if (c) {
-    // Nếu người dùng nhập số điện thoại hoặc mã, tự động cập nhật tên chuẩn vào ô input
-    if (custInput.value !== c.name && val !== 'Khách lẻ') {
-      custInput.value = c.name;
-    }
-
-    if (quickBox) quickBox.style.display = 'none';
-
-    badge.style.display = 'block';
-    const isAgent = c.type === 'agent';
-    badge.innerHTML = `<span class="type-pill ${c.type}">${isAgent ? 'Đại lý' : 'Khách quen'}</span> ` +
-      `<span style="font-size:12px;color:var(--txt);font-weight:600">📞 ${c.phone || 'Chưa có SĐT'}</span>`;
-
-    if (!isAgent) {
-      discountPct = 0;
-      discountAmt = 0;
-      discountMode = 'pct';
-    }
-  } else {
-    // Nếu khung tạo nhanh đang hiển thị thì không hiển thị đè badge "Khách vãng lai"
-    if (quickBox && quickBox.style.display !== 'none') {
-      badge.style.display = 'none';
-    } else if (val.toLowerCase() === 'khách lẻ' || !val) {
-      badge.style.display = 'none';
-    } else {
-      badge.style.display = 'block';
-      badge.innerHTML = `<span class="type-pill retail">Khách vãng lai</span> <span style="font-size:12px;color:var(--muted)">Chưa lưu hồ sơ</span>`;
-    }
-    discountPct = 0;
-    discountAmt = 0;
-    discountMode = 'pct';
-  }
-  renderPosCart();
-}
-
-/* ===== Menu gợi ý / chọn nhanh khách hàng (Lọc theo SĐT hoặc Tên) ===== */
 let activeCustomerMenuIdx = -1;
 
 function customerMenuItem(it, idx) {
@@ -183,7 +115,7 @@ function customerMenuItem(it, idx) {
   }
 
   const isRetail = it.name === 'Khách lẻ';
-  return `<div class="cust-item ${idx === 0 ? 'selected-item' : ''}" data-name="${escapeHtml(it.name)}" onmousedown="selectCustomer('${escapeHtml(it.name)}')">
+  return `<div class="cust-item ${idx === 0 ? 'selected-item' : ''}" data-name="${escapeHtml(it.name)}" onmousedown="selectCustomer(this.getAttribute('data-name'))">
     <div style="flex:1;min-width:0">
       <div class="ci-name">${escapeHtml(it.name)}</div>
       <div class="ci-sub">${it.sub}</div>
@@ -195,7 +127,7 @@ function customerMenuItem(it, idx) {
 function renderCustomerMenu(q) {
   q = (q == null ? '' : q).trim();
   const qLower = q.toLowerCase();
-  const qDigits = q.replace(/\D/g, ''); // Lấy các chữ số khi người dùng gõ SĐT (09...)
+  const qDigits = q.replace(/\D/g, '');
   const menu = document.getElementById('customerMenu');
   if (!menu) return;
 
@@ -203,19 +135,14 @@ function renderCustomerMenu(q) {
   const showAll = !q || qLower === 'khách lẻ';
   const items = [];
 
-  // Tùy chọn mặc định "Khách lẻ"
   if (showAll || 'khách lẻ'.includes(qLower) || 'khach le'.includes(qLower)) {
-    items.push({
-      name: 'Khách lẻ',
-      phone: '',
-      type: 'retail',
-      sub: 'Khách mua lẻ vãng lai (không lưu hồ sơ)'
-    });
+    items.push({ name: 'Khách lẻ', phone: '', type: 'retail', sub: 'Khách mua lẻ vãng lai (không lưu hồ sơ)' });
   }
 
-  // Nếu nhập đúng và đủ SĐT 10 chữ số bắt đầu bằng 0 mà tra trong DB không có -> Hiện nút tạo nhanh ngay đầu dropdown
+  const customers = (DB && Array.isArray(DB.customers)) ? DB.customers : [];
+
   if (isFullPhoneNumber(q)) {
-    const existing = DB.customers.find(c => (c.phone || '').replace(/\D/g, '') === q);
+    const existing = customers.find(c => (c.phone || '').replace(/\D/g, '') === q);
     if (!existing) {
       items.unshift({
         name: `➕ Thêm khách mới với SĐT ${formatPhone(q)}`,
@@ -228,50 +155,32 @@ function renderCustomerMenu(q) {
 
   let matched = [];
   if (showAll) {
-    matched = DB.customers.slice();
+    matched = customers.slice();
   } else {
-    const startsWithPhone = [];
-    const includesPhone = [];
-    const startsWithName = [];
-    const includesName = [];
+    const startsWithPhone = [], includesPhone = [], startsWithName = [], includesName = [];
+    const qNoTone = removeVietnameseTones(qLower);
 
-    DB.customers.forEach(c => {
+    customers.forEach(c => {
       const cleanPhone = (c.phone || '').replace(/\D/g, '');
       const nameL = (c.name || '').toLowerCase();
 
-      // Nếu có chữ số (người dùng đang tìm theo SĐT: 09, 091, 0912...)
       if (qDigits.length > 0) {
-        if (cleanPhone.startsWith(qDigits)) {
-          startsWithPhone.push(c);
-          return;
-        } else if (cleanPhone.includes(qDigits)) {
-          includesPhone.push(c);
-          return;
-        }
+        if (cleanPhone.startsWith(qDigits)) { startsWithPhone.push(c); return; }
+        if (cleanPhone.includes(qDigits)) { includesPhone.push(c); return; }
       }
 
-      // Tìm theo họ tên (hỗ trợ cả có dấu và không dấu)
-      const nameNoTone = typeof removeVietnameseTones === 'function' ? removeVietnameseTones(nameL) : nameL;
-      const qNoTone = typeof removeVietnameseTones === 'function' ? removeVietnameseTones(qLower) : qLower;
-      if (nameL.startsWith(qLower) || nameNoTone.startsWith(qNoTone)) {
-        startsWithName.push(c);
-      } else if (nameL.includes(qLower) || nameNoTone.includes(qNoTone)) {
-        includesName.push(c);
-      }
+      const nameNoTone = removeVietnameseTones(nameL);
+      if (nameL.startsWith(qLower) || nameNoTone.startsWith(qNoTone)) startsWithName.push(c);
+      else if (nameL.includes(qLower) || nameNoTone.includes(qNoTone)) includesName.push(c);
     });
 
-    // Ưu tiên cao nhất: SĐT BẮT ĐẦU BẰNG qDigits -> SĐT CHỨA qDigits -> Tên bắt đầu -> Tên chứa
     matched = [...startsWithPhone, ...includesPhone, ...startsWithName, ...includesName];
   }
 
   matched.forEach(c => {
     const phoneDisplay = c.phone ? `📞 ${highlightPhoneMatch(c.phone, qDigits)}` : '<span style="color:var(--dim)">Chưa có SĐT</span>';
-    items.push({
-      name: c.name,
-      phone: c.phone || '',
-      type: c.type,
-      sub: phoneDisplay
-    });
+    const debtNote = (c.debt > 0) ? ` <span style="color:var(--red);font-weight:600">· Nợ ${fmtShort(c.debt)}</span>` : '';
+    items.push({ name: c.name, phone: c.phone || '', type: c.type, sub: phoneDisplay + debtNote });
   });
 
   if (items.length) {
@@ -300,10 +209,8 @@ function onCustomerInput() {
   const menu = document.getElementById('customerMenu');
 
   if (!input) return;
-  const rawVal = input.value || '';
-  const val = rawVal.trim();
+  const val = (input.value || '').trim();
 
-  // 1. Nếu ô input trống
   if (!val) {
     input.classList.remove('is-invalid');
     if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
@@ -312,92 +219,48 @@ function onCustomerInput() {
     return;
   }
 
-  // 2. Nhận biết người dùng đang nhập SĐT hay Tên:
-  // Nếu bắt đầu bằng chữ số HOẶC toàn bộ chuỗi là chữ số
-  const startsWithDigit = /^\d/.test(val);
-  const isAllDigits = /^\d+$/.test(val);
-
-  if (startsWithDigit || isAllDigits) {
-    // a. Bắt đầu không phải số 0 -> BÁO LỖI LUÔN
-    if (!val.startsWith('0')) {
+  // Người dùng đang gõ số điện thoại
+  if (/^\d/.test(val)) {
+    const pCheck = validatePhoneNumber(val, true);
+    if (!pCheck.valid) {
       input.classList.add('is-invalid');
-      const msg = 'Số điện thoại phải bắt đầu bằng số 0!';
-      if (errEl) {
-        errEl.textContent = msg;
-        errEl.style.display = 'block';
-      }
-      toast(msg);
+      if (errEl) { errEl.textContent = pCheck.error; errEl.style.display = 'block'; }
+      if (pCheck.code !== 'INCOMPLETE') toast(pCheck.error);
       if (quickBox) quickBox.style.display = 'none';
       if (menu) menu.style.display = 'none';
       return;
     }
-
-    // b. Chứa ký tự không phải số -> BÁO LỖI LUÔN
-    if (/\D/.test(val)) {
-      input.classList.add('is-invalid');
-      const msg = 'Số điện thoại chỉ được chứa các chữ số (0-9)!';
-      if (errEl) {
-        errEl.textContent = msg;
-        errEl.style.display = 'block';
-      }
-      toast(msg);
-      if (quickBox) quickBox.style.display = 'none';
-      if (menu) menu.style.display = 'none';
-      return;
-    }
-
-    // c. Nhập quá 10 ký tự -> BÁO LỖI LUÔN
-    if (val.length > 10) {
-      input.classList.add('is-invalid');
-      const msg = `Số điện thoại chỉ gồm tối đa 10 chữ số (đang có ${val.length} số)!`;
-      if (errEl) {
-        errEl.textContent = msg;
-        errEl.style.display = 'block';
-      }
-      toast('Số điện thoại chỉ gồm tối đa 10 chữ số!');
-      if (quickBox) quickBox.style.display = 'none';
-      if (menu) menu.style.display = 'none';
-      return;
-    }
-
-    // d. Nếu đang gõ hợp lệ (bắt đầu bằng 0, chỉ gồm số, length <= 10):
-    input.classList.remove('is-invalid');
-    if (errEl) {
-      errEl.textContent = '';
-      errEl.style.display = 'none';
-    }
-
-    // Lọc gợi ý khách hàng theo số đang gõ (09...)
-    renderCustomerMenu(val);
-
-    // e. Nếu đã nhập ĐỦ ĐÚNG 10 CHỮ SỐ bắt đầu bằng 0:
-    if (val.length === 10) {
-      const existing = DB.customers.find(c => {
-        const cPhone = (c.phone || '').replace(/\D/g, '');
-        return cPhone === val;
-      });
-
-      if (!existing) {
-        // SĐT chưa có trong hệ thống -> Mở hộp tạo khách mới
-        if (quickBox) {
-          quickBox.style.display = 'block';
-          quickBox.dataset.phone = val;
-          if (quickPhoneDisplay) quickPhoneDisplay.textContent = formatPhone(val);
-        }
-        if (badge) badge.style.display = 'none';
-      } else {
-        if (quickBox) quickBox.style.display = 'none';
-      }
-    } else {
-      if (quickBox) quickBox.style.display = 'none';
-    }
-    return;
   }
 
-  // 3. Nếu người dùng nhập tên (chữ cái):
   input.classList.remove('is-invalid');
   if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
-  if (quickBox) quickBox.style.display = 'none';
+
+  const customers = (DB && Array.isArray(DB.customers)) ? DB.customers : [];
+  const existing = isFullPhoneNumber(val)
+    ? customers.find(c => (c.phone || '').replace(/\D/g, '') === val)
+    : null;
+
+  if (existing) {
+    if (quickBox) quickBox.style.display = 'none';
+    const badgeEl = document.getElementById('custBadge');
+    if (badgeEl) {
+      badgeEl.style.display = 'block';
+      badgeEl.innerHTML = `<span class="type-pill ${existing.type}">${existing.type === 'agent' ? 'Đại lý' : 'Khách quen'}</span>
+        <span style="font-size:12px;color:var(--txt);font-weight:600">📞 ${escapeHtml(existing.phone || 'Chưa có SĐT')}</span>` +
+        ((existing.debt > 0) ? ` <span class="pill red" style="font-size:11px">⚠️ Dư nợ: ${fmt(existing.debt)}</span>` : '');
+    }
+  } else if (isFullPhoneNumber(val)) {
+    // SĐT đủ 10 số nhưng chưa có trong hệ thống -> hiện hộp tạo nhanh
+    if (quickBox) {
+      quickBox.style.display = 'block';
+      quickBox.dataset.phone = val;
+      if (quickPhoneDisplay) quickPhoneDisplay.textContent = formatPhone(val);
+    }
+    if (badge) badge.style.display = 'none';
+  } else {
+    if (quickBox) quickBox.style.display = 'none';
+    if (badge) badge.style.display = 'none';
+  }
 
   renderCustomerMenu(val);
 }
@@ -413,70 +276,45 @@ function focusQuickCustomer() {
   const quickBox = document.getElementById('quickAddCustBox');
   if (quickBox) quickBox.style.display = 'block';
   const nameInput = document.getElementById('quickCustName');
-  if (nameInput) {
-    nameInput.focus();
-    nameInput.select();
-  }
+  if (nameInput) { nameInput.focus(); nameInput.select(); }
   const menu = document.getElementById('customerMenu');
   if (menu) menu.style.display = 'none';
 }
 
-/* ===== Lưu nhanh khách hàng mới ngay tại màn hình Bán hàng (Chỉ yêu cầu Tên & SĐT, không cần địa chỉ) ===== */
+/* ===== Lưu nhanh khách hàng mới ngay tại màn hình Bán hàng ===== */
 function saveQuickCustomer() {
   const nameInput = document.getElementById('quickCustName');
   const posInput = document.getElementById('posCustomer');
   const quickBox = document.getElementById('quickAddCustBox');
-  const name = (nameInput?.value || '').trim();
-  const phoneDigits = (quickBox?.dataset?.phone || posInput?.value || '').trim();
+  const name = (nameInput ? nameInput.value : '').trim();
+  const phoneDigits = ((quickBox && quickBox.dataset.phone) || (posInput ? posInput.value : '') || '').trim();
 
-  // Validate SĐT bắt buộc đúng 10 số, bắt đầu bằng 0, chỉ chứa số
   const pCheck = validatePhoneNumber(phoneDigits, false);
   if (!pCheck.valid) {
     toast(pCheck.error);
     if (posInput) markInvalid(posInput, pCheck.error);
     return;
   }
+  if (!name) { markInvalid(nameInput, 'Vui lòng nhập tên khách hàng mới!'); return; }
+  if (name.length < 2) { markInvalid(nameInput, 'Tên khách hàng phải có ít nhất 2 ký tự!'); return; }
 
-  if (!name) {
-    markInvalid(nameInput, 'Vui lòng nhập tên khách hàng mới!');
-    return;
-  }
-  if (name.length < 2) {
-    markInvalid(nameInput, 'Tên khách hàng phải có ít nhất 2 ký tự!');
-    return;
-  }
-
-  // Kiểm tra trùng SĐT trong database
-  const existing = DB.customers.find(c => (c.phone || '').replace(/\D/g, '') === phoneDigits);
+  const customers = (DB.customers = DB.customers || []);
+  const existing = customers.find(c => (c.phone || '').replace(/\D/g, '') === phoneDigits);
   if (existing) {
     toast(`Số điện thoại này đã thuộc về khách hàng "${existing.name}"!`);
     return;
   }
 
-  // Tự sinh mã KH tiếp theo không trùng lặp
-  let maxNum = 0;
-  DB.customers.forEach(c => {
-    if (c.id && c.id.startsWith('KH-')) {
-      const num = parseInt(c.id.replace('KH-', ''), 10);
-      if (!isNaN(num) && num > maxNum) maxNum = num;
-    }
-  });
-  const nextNum = Math.max(maxNum + 1, DB.nextCustomerId || 1);
-  DB.nextCustomerId = nextNum + 1;
-  const id = 'KH-' + String(nextNum).padStart(2, '0');
-
-  const formattedPhone = formatPhone(phoneDigits);
   const newCust = {
-    id,
+    id: nextId('KH', DB.customers, 'nextCustomerId', 2),
     name,
-    phone: formattedPhone,
-    type: 'retail'
+    phone: formatPhone(phoneDigits),
+    type: 'retail',
+    debt: 0
   };
-
   DB.customers.push(newCust);
   saveDB();
 
-  // Tự động gán khách hàng mới vào POS
   if (posInput) {
     posInput.value = newCust.name;
     posInput.classList.remove('is-invalid');
@@ -484,14 +322,26 @@ function saveQuickCustomer() {
     if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
   }
   if (nameInput) nameInput.value = '';
-
   if (quickBox) quickBox.style.display = 'none';
-
   const menu = document.getElementById('customerMenu');
   if (menu) menu.style.display = 'none';
 
   onPosCustomerChange();
-  toast(`Đã tạo và chọn khách hàng: ${newCust.name} (${formattedPhone})`);
+  toast(`Đã tạo và chọn khách hàng: ${newCust.name} (${newCust.phone})`);
+}
+
+/* ===== Sinh mã tự tăng dùng chung cho mọi danh mục ===== */
+function nextId(prefix, list, counterKey, pad) {
+  let max = 0;
+  (list || []).forEach(item => {
+    if (item.id && String(item.id).startsWith(prefix + '-')) {
+      const n = parseInt(String(item.id).replace(prefix + '-', ''), 10);
+      if (!isNaN(n) && n > max) max = n;
+    }
+  });
+  const next = Math.max(max + 1, DB[counterKey] || 1);
+  DB[counterKey] = next + 1;
+  return prefix + '-' + String(next).padStart(pad || 2, '0');
 }
 
 function closeCustomerMenu() {
@@ -503,46 +353,37 @@ function closeCustomerMenu() {
 
 function selectCustomer(name) {
   const el = document.getElementById('posCustomer');
-  if (el) {
-    el.value = name;
-    el.classList.remove('is-invalid');
-  }
+  if (el) { el.value = name; el.classList.remove('is-invalid'); }
   const errEl = document.getElementById('posCustError');
-  if (errEl) {
-    errEl.textContent = '';
-    errEl.style.display = 'none';
-  }
+  if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
   const m = document.getElementById('customerMenu');
   if (m) m.style.display = 'none';
   const quickBox = document.getElementById('quickAddCustBox');
   if (quickBox) quickBox.style.display = 'none';
+
   onPosCustomerChange();
 }
 
-/* ===== Điều hướng bằng bàn phím (Mũi tên lên/xuống, Enter, Escape) ===== */
 function onCustomerKeyDown(e) {
   const menu = document.getElementById('customerMenu');
   const quickBox = document.getElementById('quickAddCustBox');
 
-  if (e.key === 'Enter') {
-    // Nếu hộp tạo nhanh đang hiện, bấm Enter chuyển tiêu điểm xuống nhập tên
-    if (quickBox && quickBox.style.display !== 'none') {
-      e.preventDefault();
-      focusQuickCustomer();
-      return;
-    }
+  if (e.key === 'Enter' && quickBox && quickBox.style.display !== 'none') {
+    e.preventDefault();
+    focusQuickCustomer();
+    return;
   }
 
   if (!menu || menu.style.display === 'none') {
-    if (e.key === 'ArrowDown') {
-      openCustomerMenu();
-      e.preventDefault();
-    }
+    if (e.key === 'ArrowDown') { openCustomerMenu(); e.preventDefault(); }
     return;
   }
 
   const items = menu.querySelectorAll('.cust-item');
-  if (!items.length) return;
+  if (!items.length) {
+    if (e.key === 'Escape') closeCustomerMenu();
+    return;
+  }
 
   if (e.key === 'ArrowDown') {
     e.preventDefault();
@@ -554,23 +395,9 @@ function onCustomerKeyDown(e) {
     updateActiveCustomerMenuItem(items);
   } else if (e.key === 'Enter') {
     e.preventDefault();
-    if (activeCustomerMenuIdx >= 0 && activeCustomerMenuIdx < items.length) {
-      const activeEl = items[activeCustomerMenuIdx];
-      if (activeEl.classList.contains('quick-add-item')) {
-        focusQuickCustomer();
-        return;
-      }
-      const selectedName = activeEl.getAttribute('data-name');
-      selectCustomer(selectedName);
-    } else if (items.length > 0) {
-      const firstEl = items[0];
-      if (firstEl.classList.contains('quick-add-item')) {
-        focusQuickCustomer();
-        return;
-      }
-      const selectedName = firstEl.getAttribute('data-name');
-      selectCustomer(selectedName);
-    }
+    const target = (activeCustomerMenuIdx >= 0 && activeCustomerMenuIdx < items.length) ? items[activeCustomerMenuIdx] : items[0];
+    if (target.classList.contains('quick-add-item')) { focusQuickCustomer(); return; }
+    selectCustomer(target.getAttribute('data-name'));
     closeCustomerMenu();
   } else if (e.key === 'Escape') {
     closeCustomerMenu();
@@ -580,53 +407,269 @@ function onCustomerKeyDown(e) {
 
 function updateActiveCustomerMenuItem(items) {
   items.forEach((item, idx) => {
-    if (idx === activeCustomerMenuIdx) {
-      item.classList.add('active');
-      item.scrollIntoView({ block: 'nearest' });
-    } else {
-      item.classList.remove('active');
-    }
+    item.classList.toggle('active', idx === activeCustomerMenuIdx);
+    if (idx === activeCustomerMenuIdx) item.scrollIntoView({ block: 'nearest' });
   });
 }
 
-/* ===== Xử lý thay đổi chiết khấu (%) ===== */
-function onDiscountChange() {
-  const input = document.getElementById('posDiscountPct');
-  let pct = parseFloat(input.value);
+function onPosCustomerChange() {
+  const custInput = document.getElementById('posCustomer');
+  if (!custInput) return;
+  const val = (custInput.value || '').trim();
+  const errEl = document.getElementById('posCustError');
+  const badge = document.getElementById('custBadge');
+
+  if (/^\d/.test(val)) {
+    const pCheck = validatePhoneNumber(val, false);
+    if (!pCheck.valid) {
+      custInput.classList.add('is-invalid');
+      if (errEl) { errEl.textContent = pCheck.error; errEl.style.display = 'block'; }
+      toast(pCheck.error);
+      if (badge) badge.style.display = 'none';
+      return;
+    }
+  }
+
+  custInput.classList.remove('is-invalid');
+  if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
+
+  const c = findCustomer(val);
+
+  if (c) {
+    if (custInput.value !== c.name) custInput.value = c.name;
+    const quickBox = document.getElementById('quickAddCustBox');
+    if (quickBox) quickBox.style.display = 'none';
+    if (badge) {
+      badge.style.display = 'block';
+      badge.innerHTML = `<span class="type-pill ${c.type}">${c.type === 'agent' ? 'Đại lý' : 'Khách quen'}</span>
+        <span style="font-size:12px;color:var(--txt);font-weight:600">📞 ${escapeHtml(c.phone || 'Chưa có SĐT')}</span>` +
+        ((c.debt > 0) ? ` <span class="pill red" style="font-size:11px">⚠️ Dư nợ: ${fmt(c.debt)}</span>` : '');
+    }
+  } else if (badge) {
+    badge.style.display = 'none';
+  }
+
+  renderPosCart();
+  calculateChange();
+}
+
+/* ==========================================================================
+   CHIẾT KHẤU TỪNG MÓN & THANH TOÁN
+   ========================================================================== */
+
+/* Đặt % chiết khấu cho một dòng hàng trong giỏ (gọi từ code/nút) */
+function setLineDiscount(id, value) {
+  const idx = cart.findIndex(c => c.id === id);
+  if (idx < 0) return;
+  let pct = parseFloat(String(value).replace(',', '.'));
   if (isNaN(pct) || pct < 0) pct = 0;
   if (pct > 100) {
     pct = 100;
-    input.value = 100;
+    const el = document.querySelector(`.line-disc-input[data-id="${id}"]`);
+    if (el) el.value = 100;
     toast('Chiết khấu tối đa 100%');
   }
-  discountPct = pct;
-  discountMode = 'pct';
-  renderPosCart();
-}
+  cart[idx].discPct = pct;
 
-/* ===== Xử lý thay đổi chiết khấu tiền mặt (VNĐ) ===== */
-function onDiscountAmtChange() {
-  const input = document.getElementById('posDiscountAmt');
-  let amt = parseFloat(input.value);
-  if (isNaN(amt) || amt < 0) amt = 0;
-  const rev = posRevenueAmount();
-  if (amt > rev) {
-    amt = rev;
-    input.value = rev;
-    toast('Chiết khấu không được vượt quá tổng tiền hàng');
+  const el = document.querySelector(`.line-disc-input[data-id="${id}"]`);
+  if (el && document.activeElement !== el) el.value = pct || '';
+
+  const amtEl = document.querySelector(`.ld-amt[data-ld-amt="${id}"]`);
+  if (amtEl) {
+    const lineDisc = cartLineDiscAmt(cart[idx]);
+    amtEl.textContent = lineDisc > 0 ? '−' + fmt(lineDisc) : '—';
   }
-  discountAmt = amt;
-  discountMode = 'amt';
-  discountPct = rev > 0 ? Math.round((amt / rev) * 10000) / 100 : 0;
-  renderPosCart();
+
+  refreshPosTotals();
 }
 
-/* ===== Khởi tạo giao diện POS ===== */
+/* Hiện/ẩn khối chiết khấu đại lý theo loại khách đang chọn */
+function syncAgentDiscountBox() {
+  const isAgent = posCustomerIsAgent();
+  const discountBox = document.getElementById('discountBox');
+  if (discountBox) discountBox.style.display = isAgent ? '' : 'none';
+}
+
+/* Đặt nhanh % chiết khấu cho mọi dòng hàng (tiện cho đại lý lấy nhiều món cùng mức) */
+function applyDiscountToAll(value) {
+  let pct = parseFloat(String(value).replace(',', '.'));
+  if (isNaN(pct) || pct < 0) pct = 0;
+  if (pct > 100) pct = 100;
+  cart.forEach(c => { c.discPct = pct; });
+  // Điền giá trị vào từng ô nhập và cập nhật số tiền từng dòng
+  cart.forEach(c => {
+    const el = document.querySelector(`.line-disc-input[data-id="${c.id}"]`);
+    if (el) el.value = pct || '';
+    const amtEl = document.querySelector(`.ld-amt[data-ld-amt="${c.id}"]`);
+    if (amtEl) {
+      const lineDisc = cartLineDiscAmt(c);
+      amtEl.textContent = lineDisc > 0 ? '−' + fmt(lineDisc) : '—';
+    }
+  });
+  refreshPosTotals();
+}
+
+function onPaymentMethodChange() {
+  const method = document.getElementById('posPaymentMethod').value || 'cash';
+  const cashBox = document.getElementById('posCashBox');
+  const qrBox = document.getElementById('posQrBox');
+  if (method === 'cash') {
+    if (cashBox) cashBox.style.display = 'block';
+    if (qrBox) qrBox.style.display = 'none';
+    calculateChange();
+  } else {
+    if (cashBox) cashBox.style.display = 'none';
+    if (qrBox) qrBox.style.display = 'block';
+    updatePosQrCode();
+  }
+}
+
+function onPosStatusChange() {
+  const status = document.getElementById('posStatus').value || 'paid';
+  const paidInput = document.getElementById('posCustomerPaid');
+  const method = document.getElementById('posPaymentMethod').value || 'cash';
+  const net = posNetPay();
+
+  if (method === 'cash') {
+    if (status === 'pending') {
+      if (paidInput && parseFloat(paidInput.value || 0) >= net) paidInput.value = '0';
+      if (cashNoticeVisible()) {
+        showPosNotice('Khách mua nợ: điền số tiền khách trả trước (có thể để 0 nếu nợ toàn bộ).', 'warn');
+      }
+    } else if (paidInput && (parseFloat(paidInput.value || 0) === 0 || parseFloat(paidInput.value || 0) > net)) {
+      paidInput.value = net;
+    }
+  }
+  calculateChange();
+}
+
+function cashNoticeVisible() {
+  const el = document.getElementById('posDebtNotice');
+  return el && el.style.display !== 'none';
+}
+
+function showPosNotice(html, kind) {
+  const el = document.getElementById('posDebtNotice');
+  if (!el) return;
+  const colors = kind === 'ok'
+    ? { bg: 'var(--teal-soft)', bd: 'var(--teal)', fg: 'var(--teal)' }
+    : kind === 'warn'
+      ? { bg: 'var(--amber-soft)', bd: 'var(--amber)', fg: 'var(--amber)' }
+      : { bg: 'var(--red-soft)', bd: 'var(--red)', fg: 'var(--red)' };
+  el.style.display = 'block';
+  el.style.background = colors.bg;
+  el.style.border = '1px solid ' + colors.bd;
+  el.style.color = colors.fg;
+  el.innerHTML = html;
+}
+
+function posNetPay() {
+  return Math.max(0, posRevenueAmount() - getDiscountAmt());
+}
+
+function calculateChange() {
+  const changeEl = document.getElementById('posChangeText');
+  if (!changeEl) return;
+
+  const net = posNetPay();
+  const paidInput = document.getElementById('posCustomerPaid');
+  const paid = parseFloat(paidInput ? paidInput.value : 0) || 0;
+  const labelEl = document.getElementById('posChangeLabel');
+  const noticeEl = document.getElementById('posDebtNotice');
+  const status = document.getElementById('posStatus').value || 'paid';
+  const custVal = (document.getElementById('posCustomer').value || '').trim() || 'Khách lẻ';
+  const c = findCustomer(custVal);
+  const curDebt = c ? (c.debt || 0) : 0;
+
+  if (net === 0) {
+    if (labelEl) labelEl.textContent = 'Tiền thừa trả khách:';
+    changeEl.textContent = '0₫';
+    changeEl.style.color = 'var(--muted)';
+    if (noticeEl) noticeEl.style.display = 'none';
+    return;
+  }
+
+  if (status === 'pending' || paid < net) {
+    const remain = Math.max(0, net - paid);
+    if (labelEl) labelEl.textContent = 'Ghi nợ cho đơn này:';
+    changeEl.textContent = fmt(remain);
+    changeEl.style.color = 'var(--red)';
+
+    if (c) {
+      showPosNotice(`⚠️ Sẽ cộng <b>${fmt(remain)}</b> vào dư nợ của <b>${escapeHtml(c.name)}</b>.<br>Tổng nợ sau đơn này: <b>${fmt(curDebt + remain)}</b>`, 'warn');
+    } else {
+      showPosNotice(`⚠️ Đơn này ghi nợ <b>${fmt(remain)}</b> nhưng <b>chưa xác định được khách hàng</b>.<br>Vui lòng nhập Tên hoặc SĐT khách để theo dõi được khoản nợ.`, 'error');
+    }
+  } else {
+    const change = paid - net;
+    if (labelEl) labelEl.textContent = 'Tiền thừa trả khách:';
+    changeEl.textContent = fmt(change);
+    changeEl.style.color = 'var(--teal)';
+    if (change > 0) {
+      showPosNotice(`✓ Khách đưa dư <b>${fmt(change)}</b> — nhớ trả lại tiền thừa cho khách.`, 'ok');
+    } else if (noticeEl) {
+      noticeEl.style.display = 'none';
+    }
+  }
+}
+
+function setExactCash() {
+  const paidInput = document.getElementById('posCustomerPaid');
+  if (paidInput) { paidInput.value = posNetPay(); calculateChange(); }
+}
+
+function addCash(amt) {
+  const paidInput = document.getElementById('posCustomerPaid');
+  if (paidInput) {
+    paidInput.value = (parseFloat(paidInput.value || 0) || 0) + amt;
+    calculateChange();
+  }
+}
+
+function setCash(amt) {
+  const paidInput = document.getElementById('posCustomerPaid');
+  if (paidInput) { paidInput.value = amt; calculateChange(); }
+}
+
+function updatePosQrCode() {
+  const qrWrap = document.getElementById('posQrImageWrap');
+  const bankInfo = document.getElementById('posQrBankInfo');
+  if (!qrWrap) return;
+
+  const net = posNetPay();
+  const s = getStoreSettings();
+
+  if (!s.bankId || !s.accountNo) {
+    qrWrap.innerHTML = '<div class="muted" style="padding:16px;font-size:12px;text-align:center">Chưa cài đặt tài khoản ngân hàng trong tab Cài đặt</div>';
+    if (bankInfo) bankInfo.innerHTML = '';
+    return;
+  }
+  if (net <= 0) {
+    qrWrap.innerHTML = '<div class="muted" style="padding:16px;font-size:12px;text-align:center">Chưa có sản phẩm trong hóa đơn</div>';
+    if (bankInfo) bankInfo.innerHTML = '';
+    return;
+  }
+
+  const nextCode = 'HD-' + (DB.nextInvoiceId || 1015);
+  const qrUrl = getVietQrUrl(net, nextCode, s);
+  qrWrap.innerHTML = `<img src="${qrUrl}" alt="Mã VietQR" style="max-width:200px;height:auto;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.12)">`;
+  if (bankInfo) {
+    bankInfo.innerHTML = `<div>Ngân hàng: <b>${escapeHtml(s.bankName || s.bankId)}</b></div>
+      <div>Số TK: <b>${escapeHtml(s.accountNo)}</b> (${escapeHtml(s.accountName)})</div>
+      <div>Số tiền: <b style="color:var(--brand);font-size:13px">${fmt(net)}</b></div>`;
+  }
+}
+
+/* ==========================================================================
+   LƯỚI SẢN PHẨM & GIỎ HÀNG
+   ========================================================================== */
+
 function renderPos() {
   const catSel = document.getElementById('posCat');
+  const categories = (DB && Array.isArray(DB.categories)) ? DB.categories : [];
   if (catSel) {
     const cc = catSel.value;
-    catSel.innerHTML = '<option value="">Tất cả danh mục</option>' + DB.categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+    catSel.innerHTML = '<option value="">Tất cả danh mục</option>' + categories.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
     catSel.value = cc;
   }
   const cust = document.getElementById('posCustomer');
@@ -634,30 +677,30 @@ function renderPos() {
 
   renderPosProducts();
   renderPosCart();
+  onPaymentMethodChange();
+  onPosCustomerChange();
 }
 
-/* ===== Hiển thị lưới sản phẩm để chọn bán (Lọc theo mã, tên, danh mục - ưu tiên khớp đầu mã/tên) ===== */
 function renderPosProducts() {
   const searchInput = document.getElementById('posSearch');
-  const q = (searchInput?.value || '').trim();
+  const q = (searchInput ? searchInput.value : '').trim();
   const qRaw = q.toLowerCase();
-  const qNoTone = typeof removeVietnameseTones === 'function' ? removeVietnameseTones(qRaw) : qRaw;
+  const qNoTone = removeVietnameseTones(qRaw);
   const qClean = qRaw.replace(/[^a-z0-9]/g, '');
-  const cat = document.getElementById('posCat')?.value || '';
+  const cat = document.getElementById('posCat').value || '';
 
-  let list = DB.products.filter(p => {
+  const products = (DB && Array.isArray(DB.products)) ? DB.products : [];
+  const list = products.filter(p => {
     if (cat && p.cat !== cat) return false;
     if (!q) return true;
-    const rank = getProductSearchRank(p, qRaw, qNoTone, qClean);
-    return rank < 999;
+    return getProductSearchRank(p, qRaw, qNoTone, qClean) < 999;
   });
 
-  // Nếu người dùng có nhập từ khóa tìm kiếm: Sắp xếp theo mức độ ưu tiên khớp mã/tên
   if (q) {
     list.sort((a, b) => {
-      const rankA = getProductSearchRank(a, qRaw, qNoTone, qClean);
-      const rankB = getProductSearchRank(b, qRaw, qNoTone, qClean);
-      if (rankA !== rankB) return rankA - rankB;
+      const ra = getProductSearchRank(a, qRaw, qNoTone, qClean);
+      const rb = getProductSearchRank(b, qRaw, qNoTone, qClean);
+      if (ra !== rb) return ra - rb;
       return a.name.localeCompare(b.name, 'vi');
     });
   }
@@ -667,11 +710,12 @@ function renderPosProducts() {
 
   container.innerHTML = list.length ? list.map(p => {
     const out = p.stock <= 0;
-    return `<div class="prod-card ${out ? 'disabled' : ''}" onclick="${out ? 'toast(\'Sản phẩm đã hết hàng!\')' : `addToCart('${p.id}')`}">
+    const inCart = cart.find(c => c.id === p.id);
+    return `<div class="prod-card ${out ? 'disabled' : ''}" onclick="${out ? "toast('Sản phẩm đã hết hàng!')" : `addToCart('${p.id}')`}">
       <div class="pname"><span class="muted" style="font-weight:600;font-size:12px;margin-right:4px">[${p.id}]</span>${escapeHtml(p.name)}</div>
-      <div class="pcat">${catName(p.cat)} · ${p.brand || 'Khác'}</div>
-      <div class="prow"><span class="pprice">${fmt(p.price)}</span><span class="punit">/${catUnit(p.cat)}</span></div>
-      <div class="pstock ${out ? 'out' : ''}">${out ? 'Hết hàng' : 'Còn ' + fmtQty(p.stock) + ' ' + catUnit(p.cat)}</div>
+      <div class="pcat">${escapeHtml(catName(p.cat))} · ${escapeHtml(p.brand || 'Khác')}</div>
+      <div class="prow"><span class="pprice">${fmt(p.price)}</span><span class="punit">/${escapeHtml(catUnit(p.cat))}</span></div>
+      <div class="pstock ${out ? 'out' : ''}">${out ? 'Hết hàng' : 'Còn ' + fmtQty(p.stock) + ' ' + escapeHtml(catUnit(p.cat))}${inCart ? ' · <b style="color:var(--brand)">Đã chọn ' + fmtQty(inCart.qty) + '</b>' : ''}</div>
     </div>`;
   }).join('') : '<div class="empty">Không tìm thấy sản phẩm phù hợp</div>';
 }
@@ -680,14 +724,11 @@ function onPosSearchKeyDown(e) {
   if (e.key === 'Enter') {
     e.preventDefault();
     const container = document.getElementById('posProducts');
-    const firstCard = container?.querySelector('.prod-card:not(.disabled)');
-    if (firstCard) {
-      firstCard.click();
-    }
+    const firstCard = container ? container.querySelector('.prod-card:not(.disabled)') : null;
+    if (firstCard) firstCard.click();
   }
 }
 
-/* ===== Thêm sản phẩm vào giỏ hàng ===== */
 function addToCart(id) {
   const p = findP(id);
   if (!p) return;
@@ -707,41 +748,28 @@ function addToCart(id) {
       return;
     }
   } else {
-    cart.push({ id, qty: step });
+    cart.push({ id, qty: step, discPct: 0 });
   }
   renderPosCart();
+  renderPosProducts();
 }
 
-/* ===== Thiết lập số lượng trực tiếp từ input ===== */
 function setQty(id, v) {
   const p = findP(id);
   if (!p) return;
   const step = catStep(p.cat);
-
   if (typeof v === 'string') v = v.replace(',', '.');
   v = parseFloat(v);
-
-  // Validate giá trị nhập
-  if (isNaN(v) || v <= 0) {
-    v = step;
-    toast('Số lượng phải lớn hơn 0');
-  }
-
+  if (isNaN(v) || v <= 0) { v = step; toast('Số lượng phải lớn hơn 0'); }
   v = roundQty(v, step);
-
-  if (v > p.stock) {
-    v = p.stock;
-    toast(`Kho chỉ còn tối đa ${fmtQty(p.stock)} ${catUnit(p.cat)}`);
-  }
+  if (v > p.stock) { v = p.stock; toast(`Kho chỉ còn tối đa ${fmtQty(p.stock)} ${catUnit(p.cat)}`); }
 
   const idx = cart.findIndex(c => c.id === id);
-  if (idx >= 0) {
-    cart[idx].qty = v;
-  }
+  if (idx >= 0) cart[idx].qty = v;
   renderPosCart();
+  renderPosProducts();
 }
 
-/* ===== Tăng / giảm số lượng bằng nút +/- ===== */
 function incQty(id, d) {
   const p = findP(id);
   const idx = cart.findIndex(c => c.id === id);
@@ -749,38 +777,32 @@ function incQty(id, d) {
 
   const step = catStep(p.cat);
   let v = roundQty(cart[idx].qty + d * step, step);
-
-  if (v < step) {
-    v = step;
-  }
-  if (v > p.stock) {
-    v = p.stock;
-    toast(`Kho chỉ còn ${fmtQty(p.stock)} ${catUnit(p.cat)}`);
-  }
+  if (v < step) v = step;
+  if (v > p.stock) { v = p.stock; toast(`Kho chỉ còn ${fmtQty(p.stock)} ${catUnit(p.cat)}`); }
 
   cart[idx].qty = v;
   renderPosCart();
+  renderPosProducts();
 }
 
-/* ===== Xóa 1 sản phẩm khỏi giỏ hàng ===== */
 function removeCart(id) {
   cart = cart.filter(c => c.id !== id);
   renderPosCart();
+  renderPosProducts();
 }
 
-/* ===== Làm trống giỏ hàng ===== */
 function clearCart() {
   if (cart.length && !confirm('Xóa toàn bộ sản phẩm trong hóa đơn hiện tại?')) return;
   cart = [];
   renderPosCart();
+  renderPosProducts();
 }
 
-/* ===== Hiển thị giỏ hàng & tính toán tiền ===== */
 function renderPosCart() {
   const box = document.getElementById('posCart');
   if (!box) return;
 
-  let rev = 0, cost = 0;
+  const isAgent = posCustomerIsAgent();
 
   if (!cart.length) {
     box.innerHTML = '<div class="empty" style="padding:26px 0">Chọn sản phẩm bên trái để thêm vào giỏ</div>';
@@ -788,62 +810,109 @@ function renderPosCart() {
     box.innerHTML = cart.map(c => {
       const p = findP(c.id);
       if (!p) return '';
-      rev += p.price * c.qty;
-      cost += p.cost * c.qty;
       const step = catStep(p.cat);
+      const lineTotal = p.price * c.qty;
+      const lineDisc = cartLineDiscAmt(c);
+      const discPct = Number(c.discPct) || 0;
 
-      return `<div class="cart-line">
-        <div class="cinfo">
-          <b>${p.name}</b>
-          <span>${fmt(p.price)} / ${catUnit(p.cat)}</span>
+      // Ô chiết khấu riêng cho từng món — chỉ hiện khi khách là ĐẠI LÝ
+      const discRow = isAgent ? `
+        <div class="line-disc">
+          <span class="ld-lbl">Chiết khấu món:</span>
+          <input type="number" min="0" max="100" step="0.5" value="${discPct || ''}" placeholder="0"
+            class="line-disc-input" data-id="${c.id}"
+            oninput="onLineDiscountInput('${c.id}', this)"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">
+          <span class="ld-pct">%</span>
+          <span class="ld-amt" data-ld-amt="${c.id}">${lineDisc > 0 ? '−' + fmt(lineDisc) : '—'}</span>
+        </div>` : '';
+
+      return `<div class="cart-line-wrap" data-line="${c.id}">
+        <div class="cart-line">
+          <div class="cinfo">
+            <b>${escapeHtml(p.name)}</b>
+            <span>${fmt(p.price)} / ${escapeHtml(catUnit(p.cat))}</span>
+          </div>
+          <div class="qty-ctrl">
+            <button type="button" onclick="incQty('${c.id}', -1)">−</button>
+            <input type="number" min="${step}" max="${p.stock}" step="${step}" value="${qtyInputValue(c.qty)}" onchange="setQty('${c.id}', this.value)">
+            <button type="button" onclick="incQty('${c.id}', 1)">＋</button>
+          </div>
+          <div style="width:90px;text-align:right" class="money">${fmt(lineTotal)}</div>
+          <span class="close-x" style="font-size:15px" onclick="removeCart('${c.id}')" title="Xóa món">✕</span>
         </div>
-        <div class="qty-ctrl">
-          <button type="button" onclick="incQty('${c.id}', -1)">−</button>
-          <input type="number" min="${step}" max="${p.stock}" step="${step}" value="${qtyInputValue(c.qty)}" onchange="setQty('${c.id}', this.value)">
-          <button type="button" onclick="incQty('${c.id}', 1)">＋</button>
-        </div>
-        <div style="width:90px;text-align:right" class="money">${fmt(p.price * c.qty)}</div>
-        <span class="close-x" style="font-size:15px" onclick="removeCart('${c.id}')" title="Xóa món">✕</span>
+        ${discRow}
       </div>`;
     }).join('');
   }
 
-  const isAgent = posCustomerIsAgent();
-  const discountBox = document.getElementById('discountBox');
-  if (discountBox) discountBox.style.display = isAgent ? '' : 'none';
+  refreshPosTotals();
+}
 
-  if (!isAgent) {
-    discountPct = 0;
-    discountAmt = 0;
-  }
+/* Chỉ cập nhật lại các con số tổng — KHÔNG render lại DOM giỏ hàng.
+   Dùng khi người dùng đang gõ % chiết khấu để tránh giật/lag và mất con trỏ. */
+function refreshPosTotals() {
+  let rev = 0, cost = 0;
+  cart.forEach(c => {
+    const p = findP(c.id);
+    if (!p) return;
+    rev += p.price * c.qty;
+    cost += p.cost * c.qty;
+  });
 
   const disc = getDiscountAmt();
   const pay = Math.max(0, rev - disc);
 
-  document.getElementById('posRevenue').textContent = fmt(rev);
-  document.getElementById('posCost').textContent = fmt(cost);
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  set('posRevenue', fmt(rev));
+  set('posCost', fmt(cost));
 
   const drow = document.getElementById('discountRow');
   if (drow) {
-    if (isAgent && disc > 0) {
+    if (disc > 0) {
       drow.style.display = '';
-      document.getElementById('posDiscount').textContent = '−' + fmt(disc);
+      set('posDiscount', '−' + fmt(disc));
     } else {
       drow.style.display = 'none';
     }
   }
 
-  document.getElementById('posPay').textContent = fmt(pay);
-  document.getElementById('posProfit').textContent = fmt(rev - cost - disc);
+  set('posPay', fmt(pay));
+  set('posProfit', fmt(rev - cost - disc));
+  syncAgentDiscountBox();
 
-  // Cập nhật ô nhập chiết khấu khi không active
-  const pctInput = document.getElementById('posDiscountPct');
-  const amtInput = document.getElementById('posDiscountAmt');
-  if (pctInput && document.activeElement !== pctInput) pctInput.value = discountPct;
-  if (amtInput && document.activeElement !== amtInput) amtInput.value = discountAmt;
+  calculateChange();
+  if (document.getElementById('posPaymentMethod') &&
+    document.getElementById('posPaymentMethod').value === 'transfer') updatePosQrCode();
 }
 
-/* ===== Validate và Lưu Hóa Đơn ===== */
+/* Nhập % chiết khấu từng dòng: cập nhật số tiền dòng đó + tổng, không render lại giỏ */
+function onLineDiscountInput(id, el) {
+  const idx = cart.findIndex(c => c.id === id);
+  if (idx < 0) return;
+  let pct = parseFloat(String(el.value).replace(',', '.'));
+  if (isNaN(pct) || pct < 0) pct = 0;
+  if (pct > 100) {
+    pct = 100;
+    el.value = 100;
+    toast('Chiết khấu tối đa 100%');
+  }
+  cart[idx].discPct = pct;
+
+  // Cập nhật số tiền chiết khấu ngay trên dòng đang gõ
+  const amtEl = document.querySelector(`.ld-amt[data-ld-amt="${id}"]`);
+  if (amtEl) {
+    const lineDisc = cartLineDiscAmt(cart[idx]);
+    amtEl.textContent = lineDisc > 0 ? '−' + fmt(lineDisc) : '—';
+  }
+
+  refreshPosTotals();
+}
+
+/* ==========================================================================
+   LƯU HÓA ĐƠN
+   ========================================================================== */
+
 function savePosInvoice() {
   if (!cart.length) {
     toast('Vui lòng chọn ít nhất 1 sản phẩm vào giỏ hàng!');
@@ -851,78 +920,162 @@ function savePosInvoice() {
   }
 
   const custInput = document.getElementById('posCustomer');
-  const customer = (custInput?.value || '').trim() || 'Khách lẻ';
-  const status = document.getElementById('posStatus')?.value || 'paid';
+  const customer = (custInput.value || '').trim() || 'Khách lẻ';
+  let status = document.getElementById('posStatus').value || 'paid';
+  const paymentMethod = document.getElementById('posPaymentMethod').value || 'cash';
+  const customerPaid = parseFloat(document.getElementById('posCustomerPaid').value || 0) || 0;
 
-  // Validate nếu người dùng nhập số điện thoại thay vì tên
-  if (/^\d/.test(customer) || /^\d+$/.test(customer)) {
+  // Nếu người dùng gõ số điện thoại thay vì tên khách
+  if (/^\d/.test(customer)) {
     const pCheck = validatePhoneNumber(customer, false);
     if (!pCheck.valid) {
       markInvalid(custInput, pCheck.error);
       const errEl = document.getElementById('posCustError');
-      if (errEl) {
-        errEl.textContent = pCheck.error;
-        errEl.style.display = 'block';
-      }
+      if (errEl) { errEl.textContent = pCheck.error; errEl.style.display = 'block'; }
       return;
     }
   }
 
-  // 1. Validate tồn kho thực tế trước khi xuất hóa đơn
+  // 1. Kiểm tra tồn kho thực tế
   for (const c of cart) {
     const p = findP(c.id);
-    if (!p) {
-      toast(`Lỗi: Không tìm thấy sản phẩm ${c.id}`);
-      return;
-    }
-    if (c.qty <= 0) {
-      toast(`Số lượng mua của "${p.name}" phải lớn hơn 0!`);
-      return;
-    }
+    if (!p) { toast(`Lỗi: Không tìm thấy sản phẩm ${c.id}`); return; }
+    if (c.qty <= 0) { toast(`Số lượng mua của "${p.name}" phải lớn hơn 0!`); return; }
     if (c.qty > p.stock) {
       toast(`Sản phẩm "${p.name}" chỉ còn ${fmtQty(p.stock)} ${catUnit(p.cat)}, không đủ để bán!`);
       return;
     }
   }
 
-  // 2. Validate chiết khấu
+  // 2. Chiết khấu từng món (chỉ áp dụng khi khách là đại lý) & số tiền cần thanh toán
   const isAgent = posCustomerIsAgent();
   const discAmt = isAgent ? getDiscountAmt() : 0;
-  const discPct = isAgent ? discountPct : 0;
+  const netPay = Math.max(0, posRevenueAmount() - discAmt);
 
-  // 3. Tạo mã hóa đơn mới
-  const id = 'HD-' + DB.nextInvoiceId++;
+  // 3. Số tiền khách trả thực tế & dư nợ phát sinh
+  let actualPaid = 0;
+  let orderDebt = 0;
+  let changeAmt = 0;
+
+  if (paymentMethod === 'cash') {
+    if (status === 'pending') {
+      actualPaid = Math.min(netPay, Math.max(0, customerPaid));
+      orderDebt = Math.max(0, netPay - actualPaid);
+      changeAmt = customerPaid > netPay ? customerPaid - netPay : 0;
+    } else if (customerPaid > 0 && customerPaid < netPay) {
+      // Khách đưa thiếu -> tự động ghi nợ phần còn lại
+      actualPaid = customerPaid;
+      orderDebt = netPay - actualPaid;
+      status = 'pending';
+    } else if (customerPaid >= netPay) {
+      actualPaid = netPay;
+      changeAmt = customerPaid - netPay;
+    } else {
+      // Chọn "đã thanh toán" nhưng không nhập tiền khách đưa -> thu đủ tại quầy
+      actualPaid = netPay;
+    }
+  } else {
+    if (status === 'pending') {
+      actualPaid = 0;
+      orderDebt = netPay;
+    } else {
+      actualPaid = netPay;
+    }
+  }
+
+  // 4. Xác định khách hàng & cộng dư nợ
+  let custObj = findCustomer(customer);
+  const oldDebt = custObj ? (custObj.debt || 0) : 0;
+
+  if (orderDebt > 0) {
+    // Khách vãng lai muốn ghi nợ -> bắt buộc phải có tên hoặc SĐT để theo dõi
+    if (!custObj && (!customer || customer.toLowerCase() === 'khách lẻ')) {
+      toast('Đơn ghi nợ cần có Tên hoặc SĐT khách hàng. Vui lòng nhập tên/SĐT khách rồi lưu lại!');
+      custInput.focus();
+      custInput.classList.add('is-invalid');
+      const errEl = document.getElementById('posCustError');
+      if (errEl) {
+        errEl.textContent = 'Chưa có thông tin khách hàng để ghi nợ.';
+        errEl.style.display = 'block';
+      }
+      return;
+    }
+    if (!custObj) {
+      custObj = {
+        id: nextId('KH', DB.customers, 'nextCustomerId', 2),
+        name: customer,
+        phone: /^\d{10}$/.test(customer.replace(/\D/g, '')) ? formatPhone(customer) : '',
+        type: 'retail',
+        debt: 0
+      };
+      DB.customers.push(custObj);
+    }
+    custObj.debt = (custObj.debt || 0) + orderDebt;
+  }
+
+  const totalDebtAfter = custObj ? (custObj.debt || 0) : 0;
+  const id = 'HD-' + (DB.nextInvoiceId++);
+
   const invoiceData = {
     id,
-    customer,
-    date: todayStr(),
-    items: cart.map(c => [c.id, c.qty]),
-    status,
+    customer: custObj ? custObj.name : customer,
+    note: '',
+    paymentMethod,
+    totalAmount: netPay,
+    customerPaid: actualPaid,
+    debtAmount: orderDebt,
+    changeAmt,
+    customerOldDebt: oldDebt,
+    customerTotalDebt: totalDebtAfter,
+    date: todayIso(),
+    items: cart.map(c => [c.id, c.qty, isAgent ? (Number(c.discPct) || 0) : 0]),
+    status: orderDebt > 0 ? 'pending' : 'paid',
     exportCount: 0,
-    discountAmt: discAmt,
-    discountPct: discPct
+    discountAmt: 0,
+    discountPct: 0
   };
 
+  if (!Array.isArray(DB.invoices)) DB.invoices = [];
   DB.invoices.unshift(invoiceData);
 
-  // 4. Trừ số lượng tồn kho chính xác
+  // 5. Ghi sổ kho (xuất bán) — tồn kho được trừ và lưu vết đầy đủ
+  const soldName = invoiceData.customer;
   cart.forEach(c => {
-    const p = findP(c.id);
-    p.stock = roundQty(p.stock - c.qty, catStep(p.cat));
+    recordStockMove(c.id, -c.qty, 'sale', {
+      reason: 'Xuất bán theo hóa đơn',
+      refId: id,
+      refName: soldName,
+    });
   });
 
-  // 5. Reset trạng thái POS
-  discountMode = 'pct';
-  discountPct = 0;
-  discountAmt = 0;
+  // 6. Reset POS
   cart = [];
 
-  // 6. Ghi dữ liệu vào SQLite & LocalStorage
-  saveDB();
+  const paidEl = document.getElementById('posCustomerPaid');
+  if (paidEl) paidEl.value = '';
+  const statusEl = document.getElementById('posStatus');
+  if (statusEl) statusEl.value = 'paid';
+  const changeEl = document.getElementById('posChangeText');
+  if (changeEl) changeEl.textContent = '0₫';
+  const noticeEl = document.getElementById('posDebtNotice');
+  if (noticeEl) noticeEl.style.display = 'none';
 
-  // 7. Chuyển sang danh sách hóa đơn
-  switchView('hoadon');
-  toast('Đã lưu thành công hóa đơn ' + id);
+  saveDB(true);
+
+  // 7. Mở luôn phiếu để in hoặc chuyển sang danh sách hóa đơn
+  const wantPrint = confirm(`✓ Đã lưu hóa đơn ${id} (${fmt(netPay)}).\n\nBạn có muốn MỞ PHIẾU ĐỂ IN ngay bây giờ không?`);
+  if (wantPrint) {
+    renderPos();
+    viewInvoice(id);
+  } else {
+    switchView('hoadon');
+  }
+
+  if (orderDebt > 0) {
+    toast(`Đã lưu ${id}. Ghi nợ ${fmt(orderDebt)} cho "${invoiceData.customer}" (Tổng nợ: ${fmt(totalDebtAfter)})`);
+  } else {
+    toast('Đã lưu thành công hóa đơn ' + id);
+  }
 }
 
 /* ==========================================================================
@@ -933,7 +1086,10 @@ function setPrintPaper(size) {
   printPaper = PAPER_SIZES[size] ? size : 'A4';
   const cfg = PAPER_SIZES[printPaper];
   const paper = document.querySelector('.inv-paper');
-  if (paper) paper.style.maxWidth = cfg.preview;
+  if (paper) {
+    paper.style.maxWidth = cfg.preview;
+    paper.classList.toggle('k80', !!cfg.isThermal);
+  }
 
   let st = document.getElementById('printPageStyle');
   if (!st) {
@@ -941,68 +1097,307 @@ function setPrintPaper(size) {
     st.id = 'printPageStyle';
     document.head.appendChild(st);
   }
-  st.textContent = `@media print{ @page{ size:${cfg.page} portrait; margin:10mm } }`;
+  st.textContent = cfg.isThermal
+    ? `@media print{ @page{ size: 80mm auto; margin: 3mm 2mm } body{ margin:0 } .inv-paper{ width:76mm !important; max-width:76mm !important; padding:4px !important; } }`
+    : `@media print{ @page{ size: ${cfg.page} portrait; margin: 10mm } }`;
 }
 
 function renderInvoicePaper(i) {
   const total = invoiceTotal(i.items);
-  const disc = invDisc(i);
+  const itemDisc = invoiceItemsDiscount(i.items);
+  const billDisc = Number(i.discountAmt) || 0;
+  const disc = itemDisc + billDisc;
   const net = total - disc;
+  const store = getStoreSettings();
+  const isCancelled = i.status === 'cancel';
 
-  const rows = i.items.map(([pid, q], idx) => {
-    const p = findP(pid);
-    if (!p) return '';
+  const rows = i.items.map((row, idx) => {
+    const p = findP(row[0]);
+    if (!p) return `<tr>
+      <td style="width:26px;text-align:center">${idx + 1}</td>
+      <td class="l"><b style="color:#999">[Sản phẩm đã xóa khỏi danh mục]</b><br><span style="font-size:11px;color:#999">Mã: ${escapeHtml(row[0])}</span></td>
+      <td style="text-align:center">—</td>
+      <td style="text-align:center">${fmtQty(row[1])}</td>
+      <td class="r">—</td>
+      <td class="r">—</td>
+      <td class="r">—</td>
+    </tr>`;
+    const pct = itemDiscPct(row);
+    const lineDisc = itemDiscAmount(row);
+    const lineNet = p.price * row[1] - lineDisc;
+    const discCell = pct > 0
+      ? `${pct}%<br><span style="font-size:10.5px;color:#c0392b">−${lineDisc.toLocaleString('vi-VN')}</span>`
+      : '—';
     return `<tr>
       <td style="width:26px;text-align:center">${idx + 1}</td>
-      <td class="l">${p.name}${p.spec ? '<br><span style="font-size:11px;color:#555">' + p.spec + '</span>' : ''}</td>
-      <td style="text-align:center">${catUnit(p.cat)}</td>
-      <td style="text-align:center">${fmtQty(q)}</td>
+      <td class="l"><b>${escapeHtml(p.name)}</b>${p.spec ? '<br><span style="font-size:11px;color:#555">' + escapeHtml(p.spec) + '</span>' : ''}</td>
+      <td style="text-align:center">${escapeHtml(catUnit(p.cat))}</td>
+      <td style="text-align:center">${fmtQty(row[1])}</td>
       <td class="r">${p.price.toLocaleString('vi-VN')}</td>
-      <td class="r">${(p.price * q).toLocaleString('vi-VN')}</td>
+      <td class="r">${discCell}</td>
+      <td class="r">${lineNet.toLocaleString('vi-VN')}</td>
     </tr>`;
   }).join('');
 
-  const dateParts = i.date.split('/'); // dd/mm/yyyy
-  const info = customerInfo(i.customer);
-  const c = findCustomerByName(i.customer);
+  const c = findCustomer(i.customer);
   const isAgent = c && c.type === 'agent';
+  const info = customerInfo(i.customer);
 
-  const discountHtml = (isAgent && disc > 0) ? `
-    <div class="inv-total" style="font-weight:400">Cộng tiền hàng: ${total.toLocaleString('vi-VN')} đồng</div>
-    <div class="inv-total" style="font-weight:400">Chiết khấu đại lý${i.discountPct ? ` (${i.discountPct}%)` : ''}: − ${disc.toLocaleString('vi-VN')} đồng</div>
-    <div class="inv-total">Khách thanh toán: ${net.toLocaleString('vi-VN')} đồng</div>` : `
-    <div class="inv-total">Cộng: ${total.toLocaleString('vi-VN')} đồng</div>`;
+  let discountHtml = `<div class="inv-total" style="font-weight:400">Cộng tiền hàng: ${total.toLocaleString('vi-VN')} đồng</div>`;
+  if (itemDisc > 0) {
+    discountHtml += `<div class="inv-total" style="font-weight:400">Chiết khấu đại lý (theo từng món): − ${itemDisc.toLocaleString('vi-VN')} đồng</div>`;
+  }
+  if (billDisc > 0) {
+    discountHtml += `<div class="inv-total" style="font-weight:400">Chiết khấu${i.discountPct ? ` (${i.discountPct}%)` : ''}: − ${billDisc.toLocaleString('vi-VN')} đồng</div>`;
+  }
+  discountHtml += `<div class="inv-total" style="font-size:15px;color:#000">Cần thanh toán: <b>${net.toLocaleString('vi-VN')} đồng</b></div>`;
 
-  document.getElementById('printArea').innerHTML = `<div class="inv-paper">
-    <div class="inv-shop">${STORE.name}</div>
-    <div class="inv-sub">Địa chỉ: ${STORE.address}</div>
-    <div class="inv-sub">ĐT: ${STORE.phone}</div>
-    <div class="inv-sub2">${STORE.desc}</div>
-    <div class="inv-title">Hóa đơn bán hàng</div>
+  const paidAmt = isCancelled ? 0 : invTotalPaid(i);
+  const orderDebt = isCancelled ? 0 : (typeof i.debtAmount === 'number' ? i.debtAmount : Math.max(0, net - paidAmt));
+  const custTotalDebt = c ? (c.debt || 0) : 0;
+
+  const debtSectionHtml = isCancelled ? `
+    <div class="inv-total" style="font-size:13.5px;color:#e11d48;font-weight:700">HÓA ĐƠN ĐÃ HỦY — hàng đã được hoàn trả về kho</div>` : `
+    <div class="inv-total" style="font-size:13px;color:#0d9488">Đã thanh toán: <b>${paidAmt.toLocaleString('vi-VN')} đồng</b></div>
+    ${orderDebt > 0
+      ? `<div class="inv-total" style="font-size:13.5px;color:#e11d48;font-weight:700">Còn nợ đơn này: <b>${orderDebt.toLocaleString('vi-VN')} đồng</b></div>`
+      : `<div class="inv-total" style="font-size:12.5px;color:#666">Còn nợ đơn này: <b>0 đồng</b></div>`}
+    ${custTotalDebt > 0
+      ? `<div class="inv-total" style="font-size:13px;color:#9333ea;font-weight:600;border-top:1px dashed #bbb;padding-top:3px;margin-top:3px">Tổng dư nợ khách hàng đến nay: <b>${custTotalDebt.toLocaleString('vi-VN')} đồng</b></div>`
+      : ''}`;
+
+  const payMethodText = i.paymentMethod === 'transfer' ? 'Chuyển khoản (VietQR)' : 'Tiền mặt';
+  const cashPayInfo = (i.paymentMethod === 'cash' && i.customerPaid > 0 && i.changeAmt > 0)
+    ? `<div style="font-size:12px;color:#444;margin-top:2px">Tiền thừa trả khách: ${fmt(i.changeAmt)}</div>` : '';
+
+  let qrHtml = '';
+  if (!isCancelled && store.qrEnabled && store.bankId && store.accountNo && net > 0) {
+    const qrAmount = orderDebt > 0 ? orderDebt : net;
+    const qrUrl = getVietQrUrl(qrAmount, i.id, store);
+    qrHtml = `
+      <div class="inv-qr-block" style="text-align:center;margin-top:14px;padding-top:12px;border-top:1px dashed #bbb">
+        <div style="font-size:11.5px;font-weight:700;letter-spacing:0.5px;margin-bottom:4px">MÃ VIETQR THANH TOÁN ${orderDebt > 0 ? '(CÒN NỢ)' : ''}</div>
+        <img src="${qrUrl}" alt="VietQR" style="width:130px;height:130px;display:inline-block;border:1px solid #ddd;border-radius:6px;padding:2px">
+        <div style="font-size:11px;color:#333;margin-top:3px">${escapeHtml(store.bankName || store.bankId)}: <b>${escapeHtml(store.accountNo)}</b></div>
+        <div style="font-size:11px;color:#555">Chủ TK: <b>${escapeHtml(store.accountName)}</b></div>
+      </div>`;
+  }
+
+  const isThermal = printPaper === 'K80';
+  const d = toIsoDate(i.date).split('-');
+
+  document.getElementById('printArea').innerHTML = `<div class="inv-paper ${isThermal ? 'k80' : ''}">
+    <div class="inv-shop">${escapeHtml(store.storeName)}</div>
+    <div class="inv-sub">Địa chỉ: ${escapeHtml(store.address)}</div>
+    <div class="inv-sub">Hotline: ${escapeHtml(store.phone)}</div>
+    <div class="inv-sub2">${escapeHtml(store.desc)}</div>
+    <div class="inv-title">HÓA ĐƠN BÁN HÀNG</div>
     <div class="inv-meta">
-      <span>Ngày ${dateParts[0] || ''} tháng ${dateParts[1] || ''} năm ${dateParts[2] || ''}</span>
-      <span>Số: ${i.id.replace('HD-', '')}</span>
+      <span>Ngày ${d[2] || ''} tháng ${d[1] || ''} năm ${d[0] || ''}</span>
+      <span>Số: <b>${escapeHtml(String(i.id).replace('HD-', ''))}</b></span>
     </div>
-    <div class="inv-cust">Khách hàng: ${i.customer}${isAgent ? ' <span style="font-style:italic">(Đại lý)</span>' : ''}</div>
-    <div class="inv-cust">Điện thoại: ${info.phone || '—'}</div>
+    <div class="inv-cust">Khách hàng: <b>${escapeHtml(i.customer)}</b>${isAgent ? ' <span style="font-style:italic;color:#6b21a8">(Đại lý)</span>' : ''}</div>
+    <div class="inv-cust">Điện thoại: ${escapeHtml(info.phone || '—')}</div>
     <table class="inv-tbl">
       <thead><tr>
-        <th>STT</th><th>Tên hàng &amp; quy cách</th><th>ĐVT</th><th>S.Lượng</th><th>Đơn giá</th><th>Thành tiền</th>
+        <th>STT</th><th>Tên hàng &amp; quy cách</th><th>ĐVT</th><th>SL</th><th>Đơn giá</th><th>CK</th><th>Thành tiền</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
     ${discountHtml}
-    <div class="inv-words">Số tiền viết bằng chữ: ${capFirst(numberToWords(net))}</div>
-    <div class="inv-note">Trạng thái thanh toán: <b>${i.status === 'paid' ? 'Đã thanh toán' : i.status === 'pending' ? 'Chưa thanh toán' : 'Đã hủy'}</b></div>
+    ${debtSectionHtml}
+    <div class="inv-words">Bằng chữ: <em>${capFirst(numberToWords(net))}</em></div>
+    <div class="inv-note" style="margin-top:6px">
+      HT thanh toán: <b>${payMethodText}</b> · Trạng thái: <b style="color:${i.status === 'paid' ? '#0d9488' : i.status === 'pending' ? '#d97706' : '#e11d48'}">${i.status === 'paid' ? 'ĐÃ THANH TOÁN' : i.status === 'pending' ? 'CHƯA THANH TOÁN' : 'ĐÃ HỦY'}</b>
+      ${cashPayInfo}
+    </div>
+    ${qrHtml}
+    <div class="inv-footer-note" style="text-align:center;font-size:11px;font-style:italic;margin-top:10px;color:#555">
+      ${escapeHtml(store.footerNote || 'Cảm ơn Quý khách! Hẹn gặp lại!')}
+    </div>
     <div class="inv-sign">
-      <div class="col"><div class="line">Người mua hàng</div><div style="font-size:11px;color:#555">(Ký, ghi rõ họ tên)</div></div>
-      <div class="col"><div class="line">Người bán hàng</div><div style="font-size:11px;color:#555">(Ký, ghi rõ họ tên)</div></div>
+      <div class="col"><div class="line">Người mua hàng</div><div style="font-size:11px;color:#666">(Ký, ghi rõ họ tên)</div></div>
+      <div class="col"><div class="line">Người bán hàng</div><div style="font-size:11px;color:#666">(Ký, ghi rõ họ tên)</div></div>
     </div>
   </div>`;
 }
 
+/* ==========================================================================
+   THU NỢ / XÁC NHẬN THANH TOÁN / HỦY HÓA ĐƠN
+   ========================================================================== */
+
+function openSettleDebtModal(id) {
+  const c = (DB.customers || []).find(x => x.id === id);
+  if (!c) return;
+  activeSettleCustId = id;
+  const nameEl = document.getElementById('settleCustName');
+  const debtEl = document.getElementById('settleCustCurrentDebt');
+  const amountInput = document.getElementById('settleAmount');
+  const noteInput = document.getElementById('settleNote');
+
+  if (nameEl) nameEl.textContent = `${c.name} (${c.id})${c.phone ? ' - 📞 ' + c.phone : ''}`;
+  if (debtEl) debtEl.textContent = fmt(c.debt || 0);
+  if (amountInput) { amountInput.value = c.debt || 0; amountInput.classList.remove('is-invalid'); }
+  if (noteInput) noteInput.value = '';
+
+  openModal('settleDebtModal');
+}
+
+let activeSettleCustId = null;
+
+function setFullSettleAmount() {
+  if (!activeSettleCustId) return;
+  const c = (DB.customers || []).find(x => x.id === activeSettleCustId);
+  const amountInput = document.getElementById('settleAmount');
+  if (c && amountInput) amountInput.value = c.debt || 0;
+}
+
+/* Thu nợ: trừ dư nợ khách ĐÚNG 1 LẦN và phân bổ vào các hóa đơn còn nợ.
+   Dư nợ khách được giữ là "nguồn sự thật", không trừ trùng lặp. */
+function confirmSettleDebt() {
+  if (!activeSettleCustId) return;
+  const c = (DB.customers || []).find(x => x.id === activeSettleCustId);
+  if (!c) return;
+
+  const amountInput = document.getElementById('settleAmount');
+  const payAmt = parseFloat(amountInput ? amountInput.value : 0) || 0;
+  const curDebt = c.debt || 0;
+
+  if (payAmt <= 0) {
+    toast('Số tiền thu phải lớn hơn 0!');
+    if (amountInput) { amountInput.classList.add('is-invalid'); amountInput.focus(); }
+    return;
+  }
+  if (payAmt > curDebt) {
+    toast(`Số tiền thu (${fmt(payAmt)}) lớn hơn dư nợ hiện tại (${fmt(curDebt)}). Vui lòng nhập lại!`);
+    if (amountInput) { amountInput.classList.add('is-invalid'); amountInput.focus(); }
+    return;
+  }
+
+  if (!confirm(`Xác nhận thu ${fmt(payAmt)} từ khách "${c.name}"?\nDư nợ còn lại sau khi thu: ${fmt(curDebt - payAmt)}`)) return;
+
+  // Phân bổ số tiền thu vào các hóa đơn còn nợ (từ cũ nhất đến mới nhất)
+  let remain = payAmt;
+  const pendingInvs = (DB.invoices || [])
+    .filter(i => i.status === 'pending' && i.customer === c.name && (i.debtAmount || 0) > 0)
+    .sort((a, b) => (a.date || '').localeCompare(b.date || '') || String(a.id).localeCompare(String(b.id)));
+
+  pendingInvs.forEach(inv => {
+    if (remain <= 0) return;
+    const invDebt = inv.debtAmount || 0;
+    const deduct = Math.min(remain, invDebt);
+    inv.customerPaid = (inv.customerPaid || 0) + deduct;
+    inv.debtAmount = Math.max(0, invDebt - deduct);
+    if (inv.debtAmount === 0) inv.status = 'paid';
+    remain -= deduct;
+  });
+
+  // Trừ dư nợ khách MỘT LẦN duy nhất bằng đúng số tiền đã thu
+  c.debt = Math.max(0, curDebt - payAmt);
+
+  // Trường hợp dư nợ khách lớn hơn tổng nợ các hóa đơn (nợ tồn từ dữ liệu cũ):
+  // phần chênh lệch vẫn được trừ vào dư nợ khách, không cần hóa đơn tương ứng.
+  saveDB(true);
+
+  closeModal('settleDebtModal');
+  if (typeof refreshAllViews === 'function') refreshAllViews();
+  toast(`✓ Đã thu ${fmt(payAmt)} từ "${c.name}". Dư nợ còn lại: ${fmt(c.debt)}`);
+}
+
+function toggleCustomerType(id) {
+  const c = (DB.customers || []).find(x => x.id === id);
+  if (!c) return;
+
+  if (c.type === 'agent') {
+    if (!confirm(`Chuyển "${c.name}" về KHÁCH LẺ (thôi làm đại lý)?`)) return;
+    c.type = 'retail';
+  } else {
+    if (!confirm(`Nâng "${c.name}" lên ĐẠI LÝ?\n\nĐại lý mua nhiều và sẽ được áp dụng chiết khấu khi tạo hóa đơn.`)) return;
+    c.type = 'agent';
+  }
+
+  saveDB();
+  renderCustomers();
+  toast(c.type === 'agent' ? `Đã nâng "${c.name}" lên Đại lý` : `Đã chuyển "${c.name}" về Khách lẻ`);
+}
+
+/* ===== Xác nhận thanh toán đủ cho hóa đơn ===== */
+function confirmPaymentInvoice(id) {
+  const i = (DB.invoices || []).find(x => x.id === id);
+  if (!i) return;
+  if (i.status === 'paid') { toast('Hóa đơn này đã ở trạng thái ĐÃ THANH TOÁN!'); return; }
+  if (i.status === 'cancel') { toast('Hóa đơn đã bị hủy, không thể thanh toán!'); return; }
+
+  const net = invNet(i);
+  const remainingDebt = typeof i.debtAmount === 'number' ? i.debtAmount : Math.max(0, net - (i.customerPaid || 0));
+  const collect = remainingDebt > 0 ? remainingDebt : net;
+
+  if (!confirm(`Xác nhận hóa đơn "${i.id}" của "${i.customer}" đã thu đủ ${fmt(collect)}?`)) return;
+
+  const cust = findCustomer(i.customer);
+  if (cust && remainingDebt > 0) {
+    cust.debt = Math.max(0, (cust.debt || 0) - remainingDebt);
+  }
+
+  i.customerPaid = net;
+  i.debtAmount = 0;
+  i.status = 'paid';
+  saveDB(true);
+
+  if (typeof refreshAllViews === 'function') refreshAllViews();
+  if (viewingInvoiceId === id) viewInvoice(id);
+  toast(`✓ Đã xác nhận thanh toán cho ${i.id}`);
+}
+
+/* ===== Hủy hóa đơn: hoàn kho + trả lại khoản nợ của chính hóa đơn đó ===== */
+function cancelInvoice(id) {
+  const i = (DB.invoices || []).find(x => x.id === id);
+  if (!i) return;
+  if (i.status === 'cancel') { toast('Hóa đơn này đã ở trạng thái ĐÃ HỦY!'); return; }
+
+  const debtOfInvoice = typeof i.debtAmount === 'number' ? i.debtAmount : (i.status === 'pending' ? Math.max(0, invNet(i) - (i.customerPaid || 0)) : 0);
+
+  const msg = `⚠️ HỦY HÓA ĐƠN "${i.id}"?\n\n` +
+    `• Hoàn trả lại tồn kho cho ${i.items.length} mặt hàng\n` +
+    (debtOfInvoice > 0 ? `• Xóa khoản nợ ${fmt(debtOfInvoice)} của hóa đơn này khỏi hồ sơ khách\n` : '') +
+    (i.customerPaid > 0 && i.status === 'paid' ? `• Đơn đã thu ${fmt(i.customerPaid)}: bạn cần TỰ HOÀN TIỀN cho khách\n` : '') +
+    `\nThao tác này không thể hoàn tác. Tiếp tục?`;
+  if (!confirm(msg)) return;
+
+  // 1. Hoàn kho + ghi vết vào sổ kho
+  i.items.forEach(row => {
+    recordStockMove(row[0], row[1], 'return', {
+      reason: 'Hoàn kho do hủy hóa đơn',
+      refId: i.id,
+      refName: i.customer,
+    });
+  });
+
+  // 2. Trả lại đúng khoản nợ mà hóa đơn này đã cộng vào dư nợ khách
+  if (debtOfInvoice > 0) {
+    const cust = findCustomer(i.customer);
+    if (cust) cust.debt = Math.max(0, (cust.debt || 0) - debtOfInvoice);
+  }
+
+  i.debtAmount = 0;
+  i.status = 'cancel';
+  saveDB(true);
+
+  if (typeof refreshAllViews === 'function') refreshAllViews();
+  if (viewingInvoiceId === id) viewInvoice(id);
+  toast(`✕ Đã hủy hóa đơn ${i.id} và hoàn trả tồn kho.`);
+}
+
+function confirmPaymentFromModal() {
+  if (viewingInvoiceId) confirmPaymentInvoice(viewingInvoiceId);
+}
+
+function cancelInvoiceFromModal() {
+  if (viewingInvoiceId) cancelInvoice(viewingInvoiceId);
+}
+
 function viewInvoice(id) {
-  const i = DB.invoices.find(x => x.id === id);
+  const i = (DB.invoices || []).find(x => x.id === id);
   if (!i) return;
   viewingInvoiceId = id;
   renderInvoicePaper(i);
@@ -1010,6 +1405,21 @@ function viewInvoice(id) {
   const sel = document.getElementById('printPaper');
   if (sel) sel.value = printPaper;
   setPrintPaper(printPaper);
+
+  const actionsEl = document.getElementById('invStatusActions');
+  if (actionsEl) {
+    if (i.status === 'pending') {
+      actionsEl.innerHTML = `
+        <button type="button" class="btn green sm" onclick="confirmPaymentFromModal()">✓ Xác nhận đã thu đủ</button>
+        <button type="button" class="btn red sm ghost" onclick="cancelInvoiceFromModal()">✕ Hủy hóa đơn (Hoàn kho)</button>`;
+    } else if (i.status === 'paid') {
+      actionsEl.innerHTML = `
+        <span class="pill ok" style="padding:6px 12px;font-size:12px;font-weight:600">✓ Đã thanh toán</span>
+        <button type="button" class="btn red sm ghost" onclick="cancelInvoiceFromModal()">✕ Khách trả hàng (Hoàn kho)</button>`;
+    } else {
+      actionsEl.innerHTML = `<span class="pill out" style="padding:6px 12px;font-size:12px;font-weight:600">✕ Hóa đơn đã hủy (Đã hoàn kho)</span>`;
+    }
+  }
 
   openModal('invViewModal');
 }
@@ -1019,25 +1429,34 @@ function printInvoice() {
 }
 
 function exportOneInvoice() {
-  const i = DB.invoices.find(x => x.id === viewingInvoiceId);
+  const i = (DB.invoices || []).find(x => x.id === viewingInvoiceId);
   if (!i) return;
 
-  const rows = [['Mã HĐ', 'Khách hàng', 'Ngày', 'STT', 'Tên hàng', 'ĐVT', 'Số lượng', 'Đơn giá', 'Thành tiền']];
-  i.items.forEach(([pid, q], idx) => {
-    const p = findP(pid);
-    if (p) {
-      rows.push([i.id, i.customer, i.date, idx + 1, p.name, catUnit(p.cat), q, p.price, p.price * q]);
-    }
+  const rows = [['Mã HĐ', 'Khách hàng', 'Ngày', 'STT', 'Tên hàng', 'ĐVT', 'Số lượng', 'Đơn giá', 'CK %', 'Chiết khấu', 'Thành tiền']];
+  i.items.forEach((row, idx) => {
+    const p = findP(row[0]);
+    const pct = itemDiscPct(row);
+    const lineDisc = itemDiscAmount(row);
+    const lineNet = p ? p.price * row[1] - lineDisc : '';
+    rows.push([
+      i.id, i.customer, isoToDisplay(i.date), idx + 1,
+      p ? p.name : '[Đã xóa: ' + row[0] + ']', p ? catUnit(p.cat) : '',
+      row[1], p ? p.price : '', pct > 0 ? pct : '', lineDisc > 0 ? -lineDisc : '', lineNet
+    ]);
   });
 
   rows.push([]);
-  rows.push(['', '', '', '', '', '', '', 'Tổng tiền hàng', invoiceTotal(i.items)]);
-  if (invDisc(i) > 0) {
-    rows.push(['', '', '', '', '', '', '', 'Chiết khấu đại lý' + (i.discountPct ? ` (${i.discountPct}%)` : ''), -invDisc(i)]);
-    rows.push(['', '', '', '', '', '', '', 'Khách thanh toán', invNet(i)]);
-  } else {
-    rows.push(['', '', '', '', '', '', '', 'Tổng cộng', invNet(i)]);
+  rows.push(['', '', '', '', '', '', '', '', '', 'Tổng tiền hàng', invoiceTotal(i.items)]);
+  const itemDiscSum = invoiceItemsDiscount(i.items);
+  if (itemDiscSum > 0) {
+    rows.push(['', '', '', '', '', '', '', '', '', 'Chiết khấu từng món', -itemDiscSum]);
   }
+  if (invDisc(i) - itemDiscSum > 0) {
+    rows.push(['', '', '', '', '', '', '', '', '', 'Chiết khấu' + (i.discountPct ? ` (${i.discountPct}%)` : ''), -(invDisc(i) - itemDiscSum)]);
+  }
+  rows.push(['', '', '', '', '', '', '', '', '', 'Cần thanh toán', invNet(i)]);
+  rows.push(['', '', '', '', '', '', '', '', '', 'Đã thanh toán', invTotalPaid(i)]);
+  rows.push(['', '', '', '', '', '', '', '', '', 'Còn nợ', i.status === 'cancel' ? 0 : (i.debtAmount || 0)]);
 
   exportCSV(`hoa-don-${i.id}.csv`, rows);
 }

@@ -4,8 +4,24 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kho Điện Gia Dụng — Quản lý kho & bán hàng</title>
+  <title>Kho Điện Gia Dụng — Quản lý kho &amp; bán hàng</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
   <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" id="mobileCss" href="css/mobile.css" media="(max-width: 768px)">
+  <script>
+    /* Bản web (mở bằng trình duyệt) luôn dùng giao diện xem số liệu của điện thoại.
+       App desktop (WebView2) vẫn giữ nguyên giao diện đầy đủ, kể cả màn hình rộng.
+       Muốn xem giao diện đầy đủ trên trình duyệt: thêm ?desktop=1 vào cuối địa chỉ. */
+    (function () {
+      var inDesktopApp = !!(window.chrome && window.chrome.webview) || location.hostname === 'app.local';
+      var wantDesktop = /[?&]desktop=1/.test(location.search);
+      if (inDesktopApp || wantDesktop) return;
+      window.__MOBILE_SHELL__ = true;
+      document.documentElement.className += ' mobile-shell';
+      var link = document.getElementById('mobileCss');
+      if (link) link.media = 'all';
+    })();
+  </script>
 </head>
 
 <body>
@@ -17,42 +33,60 @@
         <div class="name">Điện Gia Dụng<small>Kho &amp; Bán hàng</small></div>
       </div>
       <nav class="nav">
-        <div class="nav-label">Tổng quan</div>
-        <a data-view="dashboard" class="active"><span class="ic">▦</span> Dashboard</a>
-        <div class="nav-label">Bán hàng</div>
+        <div class="nav-label" data-group="pos">Bán hàng</div>
         <a data-view="banhang"><span class="ic">＋</span> Bán hàng (POS)</a>
         <a data-view="hoadon"><span class="ic">▧</span> Hóa đơn bán</a>
-        <div class="nav-label">Danh mục &amp; Kho</div>
-        <a data-view="danhmuc"><span class="ic">☰</span> Quản lý danh mục</a>
-        <a data-view="sanpham"><span class="ic">▤</span> Quản lý sản phẩm <span class="badge"
+
+        <div class="nav-label" data-group="admin">Kho hàng</div>
+        <a data-view="sanpham" data-group="admin"><span class="ic">▤</span> Sản phẩm &amp; Tồn kho <span class="badge"
             id="lowStockBadge">0</span></a>
-        <div class="nav-label">Khách &amp; Báo cáo</div>
-        <a data-view="khachhang"><span class="ic">◉</span> Khách hàng</a>
-        <a data-view="baocao"><span class="ic">◔</span> Báo cáo</a>
+        <a data-view="danhmuc" data-group="admin"><span class="ic">▦</span> Danh mục</a>
+
+        <div class="nav-label" data-group="admin">Khách &amp; Báo cáo</div>
+        <a data-view="khachhang" data-group="admin"><span class="ic">◉</span> Khách hàng</a>
+        <a data-view="baocao" data-group="admin"><span class="ic">◔</span> Báo cáo</a>
+
+        <div class="nav-label" data-group="admin">Hệ thống</div>
+        <a data-view="dashboard" data-group="admin"><span class="ic">▩</span> Dashboard</a>
+        <a data-view="caidat" data-group="admin"><span class="ic">⚙</span> Cài đặt cửa hàng</a>
+        <a data-view="saoluu" data-group="admin"><span class="ic">⛁</span> Sao lưu &amp; dữ liệu</a>
       </nav>
       <div class="user">
-        <div class="ava">AD</div>
-        <div><b>Admin</b><span>Quản lý cửa hàng</span></div>
+        <div class="ava" id="userAvatar">NV</div>
+        <div style="flex:1;min-width:0">
+          <b id="userName">Nhân viên bán hàng</b>
+          <span id="userRoleText">Chỉ bán hàng &amp; hóa đơn</span>
+        </div>
       </div>
+      <button type="button" class="btn ghost sm auth-btn" id="authBtn" onclick="onAuthButtonClick()">🔑 Đăng nhập
+        quản lý</button>
     </aside>
+
+    <!-- Backdrop cho menu di động -->
+    <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="closeSidebar()"></div>
 
     <!-- Main Workspace -->
     <div class="main">
       <header class="topbar">
-        <div>
-          <h1 id="pageTitle">Dashboard</h1><span class="crumb" id="pageCrumb">Tổng quan cửa hàng</span>
+        <button type="button" class="menu-toggle" id="menuToggleBtn" title="Mở menu"
+          onclick="toggleSidebar()"><span></span><span></span><span></span></button>
+        <div class="tb-title">
+          <h1 id="pageTitle">Bán hàng (POS)</h1><span class="crumb" id="pageCrumb">Chọn sản phẩm và tạo hóa đơn</span>
         </div>
-        <div class="search-global"><span style="color:var(--dim)">⌕</span><input id="globalSearch"
-            placeholder="Tìm nhanh sản phẩm..." oninput="globalSearchHandler(this.value)"></div>
-        <div class="icon-btn" title="Xuất dữ liệu hiện tại (CSV/Excel)" onclick="exportCurrent()">⬇</div>
+        <div class="search-global" id="globalSearchBox"><span style="color:var(--dim)">⌕</span><input
+            id="globalSearch" placeholder="Tìm nhanh sản phẩm..." oninput="globalSearchHandler(this.value)"></div>
+        <div class="sync-indicator" id="syncIndicator" title="Chưa bật đồng bộ"
+          onclick="pcGoToSyncSettings()">
+          <span class="sync-dot" id="syncDot" data-state="off"></span>
+          <span class="sync-text" id="syncText">Chưa đồng bộ</span>
+        </div>
         <div class="icon-btn" id="themeToggleBtn" title="Chuyển đổi giao diện Sáng / Tối" onclick="toggleTheme()">🌙
         </div>
       </header>
 
       <div class="content" id="content">
         <!-- ============ TAB 1: DASHBOARD ============ -->
-        <section id="view-dashboard">
-          <!-- Thanh lọc thời gian Dashboard -->
+        <section id="view-dashboard" style="display:none">
           <div class="dash-filter-bar">
             <div class="df-left">
               <span class="df-icon">📅</span>
@@ -79,11 +113,11 @@
             </div>
           </div>
 
-          <div class="kpi-grid">
+          <div class="kpi-grid kpi-mob2">
             <div class="kpi">
               <div class="lbl">Doanh thu <span class="ic blue" style="margin-left:auto">₫</span></div>
               <div class="val" id="kpiRevenue">0</div>
-              <div class="delta up" id="kpiRevenueSub">▲ Doanh số bán hàng</div>
+              <div class="delta up" id="kpiRevenueSub">▲ Đã thu</div>
             </div>
             <div class="kpi">
               <div class="lbl">Lợi nhuận <span class="ic teal" style="margin-left:auto">↑</span></div>
@@ -100,6 +134,12 @@
               <div class="val" id="kpiStock">0</div>
               <div class="delta down" id="kpiStockDelta">0 sản phẩm sắp hết</div>
             </div>
+            <div class="kpi interactive" onclick="switchView('khachhang')"
+              title="Bấm để xem chi tiết danh sách khách hàng &amp; quản lý công nợ">
+              <div class="lbl">Dư nợ phải thu <span class="ic purple" style="margin-left:auto">⚠️</span></div>
+              <div class="val" id="kpiDebt" style="color:var(--red)">0</div>
+              <div class="delta down" id="kpiDebtSub">0 khách đang nợ</div>
+            </div>
           </div>
           <div class="grid-2">
             <div class="panel">
@@ -114,24 +154,61 @@
             <div class="panel">
               <div class="head">
                 <div class="title">
+                  <h2>Biểu đồ dư nợ khách hàng</h2><span class="sub" id="chartDebtSub">Theo dõi công nợ cần thu
+                    hồi</span>
+                </div>
+                <div class="debt-chart-tools" style="display:flex;gap:6px;align-items:center">
+                  <button type="button" class="btn sm debt-mode-btn active" id="btnDebtTop"
+                    onclick="setDebtChartMode('top')">Top khách nợ</button>
+                  <button type="button" class="btn sm ghost debt-mode-btn" id="btnDebtType"
+                    onclick="setDebtChartMode('type')">Cơ cấu nợ</button>
+                </div>
+              </div>
+              <div class="chart-wrap" style="height:320px;position:relative">
+                <canvas id="chartDebt" role="img" aria-label="Biểu đồ dư nợ khách hàng"></canvas>
+                <div id="chartDebtEmpty"
+                  style="display:none;position:absolute;top:0;left:0;right:0;bottom:0;flex-direction:column;align-items:center;justify-content:center;color:var(--muted);text-align:center;padding:20px">
+                  <div style="font-size:36px;margin-bottom:8px">🎉</div>
+                  <b style="color:var(--txt);font-size:14px;margin-bottom:4px">Không có dư nợ</b>
+                  <span style="font-size:12px">Tất cả khách hàng đã thanh toán đầy đủ công nợ</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="grid-2">
+            <div class="panel">
+              <div class="head">
+                <div class="title">
                   <h2>Top sản phẩm bán chạy</h2><span class="sub" id="topProdSub">Theo số lượng bán</span>
                 </div>
               </div>
               <div class="table-wrap" id="topProducts"></div>
             </div>
+            <div class="panel">
+              <div class="head">
+                <div class="title">
+                  <h2>Công nợ khách hàng cần thu</h2><span class="sub" id="debtListSub">Khách hàng có dư nợ cao
+                    nhất</span>
+                </div>
+                <button type="button" class="btn sm ghost" onclick="switchView('khachhang')"
+                  title="Xem danh sách khách hàng đầy đủ">Tất cả khách →</button>
+              </div>
+              <div class="table-wrap" id="dashDebtList"></div>
+            </div>
           </div>
           <div class="panel" style="margin-bottom:20px">
             <div class="head">
               <div class="title">
-                <h2>Cảnh báo tồn kho thấp</h2><span class="sub">Dưới mức an toàn (≤ 5 đơn vị)</span>
+                <h2>Cảnh báo tồn kho thấp</h2><span class="sub">Dưới ngưỡng an toàn</span>
               </div>
+              <button type="button" class="btn sm ghost" onclick="switchView('sanpham')">Xem tất cả sản phẩm →</button>
             </div>
             <div class="table-wrap" id="lowStockList"></div>
           </div>
         </section>
 
         <!-- ============ TAB 2: BÁN HÀNG (POS) ============ -->
-        <section id="view-banhang" style="display:none">
+        <section id="view-banhang">
           <div class="pos">
             <div class="pos-left">
               <div class="panel" style="margin-bottom:14px">
@@ -152,7 +229,7 @@
                   <h2>Hóa đơn hiện tại</h2><button type="button" class="btn ghost sm" onclick="clearCart()">Xóa
                     hết</button>
                 </div>
-                <div class="form-row" style="margin-bottom:10px">
+                <div class="form-row one" style="margin-bottom:8px">
                   <div style="position:relative"><label>Khách hàng *</label><input id="posCustomer"
                       placeholder="Tìm tên hoặc SĐT (VD: 09...)" autocomplete="off" value="Khách lẻ"
                       onfocus="this.select(); openCustomerMenu()" oninput="onCustomerInput()"
@@ -160,12 +237,23 @@
                     <div id="customerMenu" class="cust-menu" style="display:none"></div>
                     <div id="posCustError" class="invalid-feedback" style="display:none"></div>
                   </div>
-                  <div><label>Trạng thái</label><select id="posStatus">
-                      <option value="paid">Đã thanh toán</option>
-                      <option value="pending">Chưa thanh toán</option>
-                    </select></div>
                 </div>
-                <!-- Box tạo nhanh khách hàng khi SĐT chưa có trong hệ thống -->
+                <div class="form-row" style="margin-bottom:8px">
+                  <div>
+                    <label>Phương thức TT</label>
+                    <select id="posPaymentMethod" onchange="onPaymentMethodChange()">
+                      <option value="cash">💵 Tiền mặt</option>
+                      <option value="transfer">💳 Chuyển khoản (VietQR)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label>Trạng thái</label>
+                    <select id="posStatus" onchange="onPosStatusChange()">
+                      <option value="paid">Đã thanh toán đủ</option>
+                      <option value="pending">Ghi nợ / trả một phần</option>
+                    </select>
+                  </div>
+                </div>
                 <div id="quickAddCustBox"
                   style="display:none;margin:-4px 0 10px;padding:9px 12px;background:var(--brand-soft);border:1px dashed var(--brand);border-radius:8px">
                   <div
@@ -180,7 +268,7 @@
                   </div>
                   <div style="display:flex;gap:6px">
                     <input id="quickCustName" placeholder="Nhập họ tên khách hàng *"
-                      style="flex:1;background:#fff;font-size:13px;padding:6px 10px;border:1px solid var(--line2);border-radius:6px"
+                      style="flex:1;background:var(--panel);font-size:13px;padding:6px 10px;border:1px solid var(--line2);border-radius:6px"
                       onkeydown="if(event.key==='Enter'){event.preventDefault();saveQuickCustomer();}">
                     <button type="button" class="btn sm" onclick="saveQuickCustomer()" style="white-space:nowrap">✓ Lưu
                       &amp; Chọn</button>
@@ -188,19 +276,24 @@
                 </div>
                 <div id="custBadge" style="display:none;margin:-4px 0 10px"></div>
                 <div id="discountBox" style="display:none;margin-bottom:10px">
-                  <div class="form-row">
-                    <div><label>Chiết khấu (%)</label><input id="posDiscountPct" type="number" min="0" max="100"
-                        step="0.1" value="0" oninput="onDiscountChange()" placeholder="Ví dụ: 10"></div>
-                    <div><label>hoặc tiền chiết khấu (₫)</label><input id="posDiscountAmt" type="number" min="0"
-                        step="1000" value="0" oninput="onDiscountAmtChange()" placeholder="Ví dụ: 50000"></div>
+                  <div class="agent-disc-head">
+                    <span>🏷️ <b>Đại lý</b> — nhập chiết khấu cho từng món bên dưới</span>
+                  </div>
+                  <div class="agent-disc-quick">
+                    <label for="bulkDiscountPct">Áp dụng nhanh cho tất cả món (%):</label>
+                    <div class="adq-right">
+                      <input id="bulkDiscountPct" type="number" min="0" max="100" step="0.5" placeholder="VD: 10"
+                        onkeydown="if(event.key==='Enter'){event.preventDefault();applyDiscountToAll(this.value);}">
+                      <button type="button" class="btn sm" onclick="applyDiscountToAll(document.getElementById('bulkDiscountPct').value)">Áp dụng</button>
+                    </div>
                   </div>
                 </div>
-                <div id="posCart" style="max-height:300px;overflow-y:auto">
+                <div id="posCart" class="pos-cart-scroll">
                   <div class="empty" style="padding:26px 0">Chọn sản phẩm bên trái để thêm vào giỏ</div>
                 </div>
                 <div class="total-box">
                   <div class="row"><span class="muted">Tổng tiền hàng</span><span id="posRevenue">0₫</span></div>
-                  <div class="row" id="discountRow" style="display:none"><span class="muted">Chiết khấu</span><span
+                  <div class="row" id="discountRow" style="display:none"><span class="muted">Chiết khấu từng món</span><span
                       id="posDiscount" style="color:var(--red)">−0₫</span></div>
                   <div class="row"><span class="muted">Tổng giá vốn</span><span id="posCost">0₫</span></div>
                   <div class="row grand"><span>Khách thanh toán</span><span id="posPay"
@@ -208,6 +301,46 @@
                   <div class="row"><span class="muted">Lợi nhuận</span><span id="posProfit"
                       style="color:var(--teal)">0₫</span></div>
                 </div>
+
+                <div id="posCashBox"
+                  style="margin-top:10px;padding:10px 12px;background:var(--brand-soft);border:1px solid var(--line2);border-radius:8px">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                    <span style="font-weight:600;font-size:12px;color:var(--brand)">Tiền khách đưa:</span>
+                    <div class="quick-cash-pills">
+                      <button type="button" class="btn-chip" onclick="setExactCash()" title="Khách đưa vừa đủ">Đủ
+                        tiền</button>
+                      <button type="button" class="btn-chip" onclick="addCash(100000)">+100k</button>
+                      <button type="button" class="btn-chip" onclick="addCash(200000)">+200k</button>
+                      <button type="button" class="btn-chip" onclick="addCash(500000)">+500k</button>
+                      <button type="button" class="btn-chip" onclick="setCash(500000)">500k</button>
+                      <button type="button" class="btn-chip" onclick="setCash(1000000)">1M</button>
+                      <button type="button" class="btn-chip" onclick="setCash(2000000)">2M</button>
+                    </div>
+                  </div>
+                  <div style="display:flex;gap:6px;align-items:center">
+                    <input id="posCustomerPaid" type="number" min="0" step="1000" placeholder="0"
+                      style="font-size:16px;font-weight:700;color:var(--brand);flex:1;padding:6px 10px;border-radius:6px;border:1px solid var(--line2)"
+                      oninput="calculateChange()">
+                    <span style="font-weight:700;font-size:14px;color:var(--brand)">₫</span>
+                  </div>
+                  <div style="margin-top:6px;display:flex;justify-content:space-between;font-size:13px;align-items:center">
+                    <span class="muted" id="posChangeLabel">Tiền thừa trả khách:</span>
+                    <b id="posChangeText" style="font-size:15px;color:var(--teal)">0₫</b>
+                  </div>
+                  <div id="posDebtNotice"
+                    style="display:none;margin-top:6px;padding:6px 10px;border-radius:6px;font-size:12px;font-weight:600">
+                  </div>
+                </div>
+
+                <div id="posQrBox"
+                  style="display:none;margin-top:10px;padding:12px;background:var(--panel);border:1px solid var(--line2);border-radius:8px;text-align:center">
+                  <div style="font-weight:600;font-size:13px;color:var(--brand);margin-bottom:6px">Quét mã VietQR để
+                    thanh toán</div>
+                  <div id="posQrImageWrap"
+                    style="min-height:160px;display:flex;align-items:center;justify-content:center"></div>
+                  <div id="posQrBankInfo" style="font-size:12px;color:var(--txt);margin-top:6px;line-height:1.5"></div>
+                </div>
+
                 <button type="button" class="btn green" style="width:100%;justify-content:center;margin-top:12px"
                   onclick="savePosInvoice()">✓ Lưu hóa đơn</button>
               </div>
@@ -262,39 +395,7 @@
           </div>
         </section>
 
-        <!-- ============ TAB 4: QUẢN LÝ DANH MỤC ============ -->
-        <section id="view-danhmuc" style="display:none">
-          <div class="panel">
-            <div class="head">
-              <div class="title">
-                <h2>Quản lý danh mục sản phẩm</h2><span class="sub" id="catCount"></span>
-              </div><button type="button" class="btn" onclick="openCategoryModal()">＋ Thêm danh mục</button>
-            </div>
-            <div class="table-toolbar">
-              <div class="search"><span style="color:var(--dim)">⌕</span><input id="catSearch"
-                  placeholder="Tìm mã hoặc tên danh mục (VD: DM, điện...)" oninput="renderCategories()"></div>
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Mã DM</th>
-                    <th>Tên danh mục</th>
-                    <th>Kiểu hàng hóa</th>
-                    <th>Đơn vị bán</th>
-                    <th style="text-align:center">Số sản phẩm</th>
-                    <th style="text-align:right">Tồn kho</th>
-                    <th style="text-align:center">Thao tác</th>
-                  </tr>
-                </thead>
-                <tbody id="catBody"></tbody>
-              </table>
-            </div>
-            <div class="pager" id="catPager"></div>
-          </div>
-        </section>
-
-        <!-- ============ TAB 5: QUẢN LÝ SẢN PHẨM ============ -->
+        <!-- ============ TAB 4: QUẢN LÝ SẢN PHẨM ============ -->
         <section id="view-sanpham" style="display:none">
           <div class="panel">
             <div class="head">
@@ -352,13 +453,51 @@
         </section>
 
 
-        <!-- ============ TAB 7: KHÁCH HÀNG ============ -->
+
+        <!-- ============ TAB 7: DANH MỤC ============ -->
+        <section id="view-danhmuc" style="display:none">
+          <div class="panel">
+            <div class="head">
+              <div class="title">
+                <h2>Quản lý danh mục sản phẩm</h2><span class="sub" id="catCount"></span>
+              </div><button type="button" class="btn" onclick="openCategoryModal()">＋ Thêm danh mục</button>
+            </div>
+            <div class="table-toolbar">
+              <div class="search"><span style="color:var(--dim)">⌕</span><input id="catSearch"
+                  placeholder="Tìm mã hoặc tên danh mục (VD: DM, điện...)" oninput="renderCategories()"></div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Mã DM</th>
+                    <th>Tên danh mục</th>
+                    <th>Kiểu hàng hóa</th>
+                    <th>Đơn vị bán</th>
+                    <th style="text-align:center">Số sản phẩm</th>
+                    <th style="text-align:right">Tồn kho</th>
+                    <th style="text-align:center">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody id="catBody"></tbody>
+              </table>
+            </div>
+            <div class="pager" id="catPager"></div>
+          </div>
+        </section>
+
+
+        <!-- ============ TAB 9: KHÁCH HÀNG ============ -->
         <section id="view-khachhang" style="display:none">
           <div class="panel">
             <div class="head">
               <div class="title">
                 <h2>Khách hàng</h2><span class="sub" id="customerCount"></span>
-              </div><button type="button" class="btn" onclick="openAddCustomer()">＋ Thêm khách hàng</button>
+              </div>
+              <div style="display:flex;gap:8px">
+                <button type="button" class="btn ghost" onclick="exportCustomers()">⬇ Xuất Excel</button>
+                <button type="button" class="btn" onclick="openAddCustomer()">＋ Thêm khách hàng</button>
+              </div>
             </div>
             <div class="table-toolbar">
               <div class="search"><span style="color:var(--dim)">⌕</span><input id="customerSearch"
@@ -374,6 +513,7 @@
                     <th style="text-align:center">Loại</th>
                     <th style="text-align:center">Số đơn</th>
                     <th style="text-align:right">Tổng chi tiêu</th>
+                    <th style="text-align:right">Dư nợ</th>
                     <th style="text-align:center">Thao tác</th>
                   </tr>
                 </thead>
@@ -384,23 +524,428 @@
           </div>
         </section>
 
-        <!-- ============ TAB 8: BÁO CÁO THỐNG KÊ ============ -->
+        <!-- ============ TAB 10: BÁO CÁO ============ -->
         <section id="view-baocao" style="display:none">
+          <div class="panel" style="margin-bottom:16px">
+            <div class="head">
+              <div class="title">
+                <h2>Bảng tổng hợp Nhập – Xuất – Tồn</h2><span class="sub">Theo danh mục sản phẩm</span>
+              </div>
+              <div style="display:flex;gap:8px">
+                <button type="button" class="btn ghost" onclick="resetReportFilter()">↺ Xóa lọc ngày</button>
+                <button type="button" class="btn ghost" onclick="exportReport()">⬇ Xuất Excel</button>
+              </div>
+            </div>
+            <div class="table-toolbar">
+              <span class="muted" style="font-size:12px">Khoảng ngày (bỏ trống = toàn bộ):</span>
+              <input type="date" class="field" id="reportFrom" onchange="renderReport()" title="Từ ngày">
+              <span class="muted">→</span>
+              <input type="date" class="field" id="reportTo" onchange="renderReport()" title="Đến ngày">
+            </div>
+            <div class="table-wrap" id="reportBody"></div>
+          </div>
+
+        </section>
+
+        <!-- ============ TAB 11: CÀI ĐẶT CỬA HÀNG ============ -->
+        <section id="view-caidat" style="display:none">
+          <div class="panel" style="max-width:900px;margin:0 auto">
+            <div class="head">
+              <div class="title">
+                <h2>Cài đặt thông tin cửa hàng</h2><span class="sub">Thông tin in hóa đơn, tài khoản VietQR, cảnh báo
+                  tồn kho &amp; mật khẩu</span>
+              </div>
+              <button type="button" class="btn" onclick="saveStoreSettings()">✓ Lưu cài đặt</button>
+            </div>
+            <div style="padding:22px">
+              <h3 class="set-h3">1. Thông tin liên hệ cửa hàng (in trên đầu hóa đơn)</h3>
+              <div class="form-row one">
+                <div><label>Tên cửa hàng *</label><input id="setStoreName"
+                    placeholder="Ví dụ: CỬA HÀNG ĐIỆN GIA DỤNG" maxlength="120"></div>
+              </div>
+              <div class="form-row one">
+                <div><label>Địa chỉ cửa hàng *</label><input id="setStoreAddress"
+                    placeholder="Ví dụ: 123 Đường Lê Lợi, P. Bến Thành, Q.1, TP.HCM" maxlength="200"></div>
+              </div>
+              <div class="form-row">
+                <div><label>Số điện thoại hotline *</label><input id="setStorePhone" placeholder="Ví dụ: 0987 654 321"
+                    maxlength="60"></div>
+                <div><label>Ghi chú chân trang hóa đơn</label><input id="setStoreFooter"
+                    placeholder="Ví dụ: Cảm ơn Quý khách! Hẹn gặp lại!" maxlength="150"></div>
+              </div>
+              <div class="form-row one">
+                <div><label>Ngành hàng / Khẩu hiệu kinh doanh</label><input id="setStoreDesc"
+                    placeholder="CHUYÊN: ĐỒ ĐIỆN GIA DỤNG - THIẾT BỊ NHÀ BẾP..." maxlength="250"></div>
+              </div>
+
+              <h3 class="set-h3">2. Cấu hình chuyển khoản qua mã VietQR tự động</h3>
+              <div class="form-row">
+                <div>
+                  <label>Ngân hàng nhận tiền *</label>
+                  <select id="setBankId" class="field" style="width:100%" onchange="updateQrPreview()"></select>
+                </div>
+                <div>
+                  <label>Số tài khoản ngân hàng *</label>
+                  <input id="setAccountNo" placeholder="Ví dụ: 0987654321" maxlength="30" oninput="updateQrPreview()">
+                </div>
+              </div>
+              <div class="form-row">
+                <div>
+                  <label>Tên chủ tài khoản (In hoa, không dấu) *</label>
+                  <input id="setAccountName" placeholder="Ví dụ: NGUYEN VAN ADMIN" maxlength="80"
+                    oninput="this.value=this.value.toUpperCase(); updateQrPreview()">
+                </div>
+                <div>
+                  <label>In mã VietQR lên hóa đơn</label>
+                  <select id="setQrEnabled" class="field" style="width:100%">
+                    <option value="true">Bật (in QR ngân hàng lên hóa đơn)</option>
+                    <option value="false">Tắt</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="qr-preview-box">
+                <div id="settingsQrPreview" class="qr-preview-img">
+                  <span class="muted" style="font-size:12px;text-align:center">Xem trước mã VietQR</span>
+                </div>
+                <div>
+                  <div style="font-weight:600;font-size:14px;margin-bottom:4px;color:var(--txt)">Kiểm tra mã VietQR mẫu
+                  </div>
+                  <div style="font-size:13px;color:var(--muted);line-height:1.6">
+                    Khi khách mua hàng chọn Chuyển khoản, hệ thống sẽ tự động ghép <b>Số tiền cần thanh toán</b> và
+                    <b>Mã đơn hàng</b> vào mã QR này để khách chỉ cần quét và bấm chuyển tiền.
+                  </div>
+                </div>
+              </div>
+
+              <h3 class="set-h3">3. Cảnh báo tồn kho &amp; bảo mật</h3>
+              <div class="form-row">
+                <div>
+                  <label>Ngưỡng cảnh báo sắp hết hàng (đơn vị)</label>
+                  <input id="setLowStockThreshold" type="number" min="0" step="1" placeholder="5">
+                </div>
+                <div>
+                  <label>Mật khẩu quản lý mới <span style="font-size:11px;color:var(--muted)">(bỏ trống nếu không
+                      đổi)</span></label>
+                  <input id="setManagerPassword" type="password" placeholder="Ít nhất 4 ký tự" maxlength="60"
+                    autocomplete="new-password">
+                </div>
+              </div>
+              <div class="hint-box">
+                Mật khẩu quản lý dùng để mở các mục <b>Kho, Khách hàng, Báo cáo, Cài đặt, Sao lưu</b>.
+                Nhân viên bán hàng chỉ vào được <b>Bán hàng (POS)</b> và <b>Hóa đơn bán</b>.
+              </div>
+
+              <h3 class="set-h3" style="margin-top:26px">7. Đồng bộ giữa máy tính và điện thoại</h3>
+              <div id="pcSyncStatus" class="hint-box" style="line-height:1.7"></div>
+
+              <div class="grid2" style="margin-top:12px">
+                <div>
+                  <label>Mã cửa hàng (gõ GIỐNG NHAU trên máy tính và điện thoại)</label>
+                  <input id="setStoreCode" placeholder="Ví dụ: CUA-HANG-8F3K2" autocomplete="off"
+                    autocapitalize="characters" spellcheck="false" style="text-transform:uppercase"
+                    oninput="pcPreviewCodeInput(this.value)" onkeydown="pcCodeKeydown(event)">
+                  <div id="pcCodeHint" class="hint-box" style="display:none;margin-top:8px"></div>
+                </div>
+                <div>
+                  <label>Mã thiết bị này</label>
+                  <div class="hint-box" id="pcDeviceId" style="margin-top:0"></div>
+                </div>
+              </div>
+
+              <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
+                <button type="button" class="btn green" id="pcBtnConnect" onclick="pcConnectStore()">🔗 Kết nối /
+                  Lưu mã cửa hàng</button>
+                <button type="button" class="btn" id="pcBtnPush" onclick="pcPushNow()">⬆️ Gửi dữ liệu máy này lên
+                  cloud</button>
+                <button type="button" class="btn" id="pcBtnPull" onclick="pcPullNow()">⬇️ Lấy dữ liệu mới nhất từ
+                  cloud</button>
+                <button type="button" class="btn ghost" id="pcBtnGen" onclick="pcGenerateCode()">🎲 Tạo mã ngẫu
+                  nhiên</button>
+                <button type="button" class="btn ghost" id="pcBtnCopy" onclick="pcCopyCode()">📋 Sao chép mã</button>
+                <button type="button" class="btn red" id="pcBtnDisconnect" onclick="pcDisconnectStore()">Ngắt kết nối
+                  cloud</button>
+              </div>
+
+              <div class="hint-box" id="pcSyncGuide" style="margin-top:12px"></div>
+
+              <div style="margin-top:24px;display:flex;gap:12px;justify-content:flex-end">
+                <button type="button" class="btn" style="min-width:140px;justify-content:center"
+                  onclick="saveStoreSettings()">✓ Lưu cài đặt</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ TAB 12: SAO LƯU & DỮ LIỆU ============ -->
+        <section id="view-saoluu" style="display:none">
+          <div class="panel" style="margin-bottom:16px">
+            <div class="head">
+              <div class="title">
+                <h2>Dữ liệu hiện tại</h2><span class="sub">Toàn bộ dữ liệu được lưu trên máy này, không gửi lên
+                  internet</span>
+              </div>
+              <div style="display:flex;gap:8px">
+                <button type="button" class="btn ghost" onclick="exportBackupFile()">⬇ Tải file sao lưu toàn bộ</button>
+                <button type="button" class="btn green" onclick="createBackupNow()">⛁ Sao lưu ngay</button>
+              </div>
+            </div>
+            <div style="padding:0 18px 18px" id="backupDbInfo"></div>
+          </div>
+
+          <div class="panel" style="margin-bottom:16px">
+            <div class="head">
+              <div class="title">
+                <h2>Phục hồi từ file sao lưu</h2><span class="sub">Chọn file .json đã tải về trước đó để khôi phục dữ
+                  liệu</span>
+              </div>
+            </div>
+            <div style="padding:0 18px 18px">
+              <div class="form-row one">
+                <div>
+                  <label>Chọn file sao lưu (.json)</label>
+                  <input type="file" id="backupFileInput" accept=".json,application/json"
+                    onchange="importBackupFile(this)">
+                </div>
+              </div>
+              <div class="hint-box">
+                Dùng chức năng này khi <b>chuyển sang máy mới</b> hoặc khi cần <b>khôi phục lại dữ liệu cũ</b>.
+                Hệ thống sẽ tự tạo 1 bản sao lưu an toàn trước khi ghi đè, phòng trường hợp bạn chọn nhầm file.
+              </div>
+            </div>
+          </div>
+
+          <div class="panel" style="margin-bottom:16px">
+            <div class="head">
+              <div class="title">
+                <h2>Sao lưu tự động trên máy</h2><span class="sub">Giữ lại 5 bản gần nhất</span>
+              </div>
+              <select class="field" id="setDailyBackup" onchange="toggleDailyBackup()">
+                <option value="true">Bật tự động sao lưu hằng ngày</option>
+                <option value="false">Tắt</option>
+              </select>
+            </div>
+            <div class="table-wrap" style="padding:0 18px 18px" id="backupList"></div>
+          </div>
+
+          <div class="panel" style="border-color:var(--red)">
+            <div class="head">
+              <div class="title">
+                <h2 style="color:var(--red)">Vùng nguy hiểm</h2><span class="sub">Các thao tác không thể hoàn tác</span>
+              </div>
+            </div>
+            <div style="padding:0 18px 18px">
+              <div class="hint-box" style="background:var(--red-soft);border-color:var(--red)">
+                <b>Đặt lại dữ liệu mẫu</b> sẽ xóa toàn bộ sản phẩm, hóa đơn và khách hàng hiện tại, sau đó nạp
+                lại bộ dữ liệu demo ban đầu. Hãy <b>sao lưu trước</b> nếu bạn cần giữ dữ liệu.
+              </div>
+              <button type="button" class="btn red" style="margin-top:12px" onclick="confirmResetData()">⚠ Đặt lại toàn
+                bộ dữ liệu mẫu</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ TAB D: DOANH THU (dành cho điện thoại) ============ -->
+        <section id="view-doanhthu" style="display:none">
+          <div class="seg-bar" id="revPresetBar">
+            <button type="button" class="seg-btn" data-preset="today" onclick="setRevPreset('today')">Hôm nay</button>
+            <button type="button" class="seg-btn" data-preset="last7" onclick="setRevPreset('last7')">7 ngày</button>
+            <button type="button" class="seg-btn active" data-preset="this_month" onclick="setRevPreset('this_month')">Tháng
+              này</button>
+            <button type="button" class="seg-btn" data-preset="last_month" onclick="setRevPreset('last_month')">Tháng
+              trước</button>
+            <button type="button" class="seg-btn" data-preset="this_year" onclick="setRevPreset('this_year')">Năm nay</button>
+          </div>
+
+          <div class="kpi-grid kpi-mob2">
+            <div class="kpi">
+              <div class="lbl">Doanh thu <span class="ic blue" style="margin-left:auto">₫</span></div>
+              <div class="val" id="revKpiRevenue">0</div>
+              <div class="delta up" id="revKpiRevenueSub">—</div>
+            </div>
+            <div class="kpi">
+              <div class="lbl">Lợi nhuận <span class="ic teal" style="margin-left:auto">↑</span></div>
+              <div class="val" id="revKpiProfit">0</div>
+              <div class="delta up" id="revKpiProfitSub">—</div>
+            </div>
+            <div class="kpi">
+              <div class="lbl">Đơn hàng <span class="ic amber" style="margin-left:auto">▧</span></div>
+              <div class="val" id="revKpiOrders">0</div>
+              <div class="delta" id="revKpiOrdersSub">—</div>
+            </div>
+            <div class="kpi">
+              <div class="lbl">Đã thu <span class="ic purple" style="margin-left:auto">✓</span></div>
+              <div class="val" id="revKpiCollected">0</div>
+              <div class="delta" id="revKpiCollectedSub">—</div>
+            </div>
+          </div>
+
+          <div class="panel" style="margin-bottom:14px">
+            <div class="head">
+              <div class="title">
+                <h2>Doanh thu theo thời gian</h2><span class="sub" id="revTrendSub">—</span>
+              </div>
+              <div class="seg-mini" id="revTrendBar">
+                <button type="button" class="seg-mini-btn active" data-mode="day"
+                  onclick="setRevTrendMode('day')">Ngày</button>
+                <button type="button" class="seg-mini-btn" data-mode="month"
+                  onclick="setRevTrendMode('month')">Tháng</button>
+              </div>
+            </div>
+            <div class="chart-wrap" style="height:260px"><canvas id="chartRevTrend" role="img"
+                aria-label="Biểu đồ doanh thu theo thời gian"></canvas></div>
+          </div>
+
+          <div class="panel" style="margin-bottom:14px">
+            <div class="head">
+              <div class="title">
+                <h2>Bán chạy nhất</h2><span class="sub" id="revTopSub">—</span>
+              </div>
+              <div class="seg-mini" id="revTopBar">
+                <button type="button" class="seg-mini-btn active" data-mode="product"
+                  onclick="setRevTopMode('product')">Sản phẩm</button>
+                <button type="button" class="seg-mini-btn" data-mode="category"
+                  onclick="setRevTopMode('category')">Danh mục</button>
+              </div>
+            </div>
+            <div class="table-wrap" id="revTopList"></div>
+          </div>
+
+          <div class="panel" style="margin-bottom:14px">
+            <div class="head">
+              <div class="title">
+                <h2>Hóa đơn trong kỳ</h2><span class="sub" id="revInvSub">—</span>
+              </div>
+            </div>
+            <div class="table-wrap" id="revInvoiceList"></div>
+          </div>
+        </section>
+
+        <!-- ============ TAB E: DƯ NỢ KHÁCH HÀNG (dành cho điện thoại) ============ -->
+        <section id="view-congno" style="display:none">
+          <div class="kpi-grid kpi-mob2">
+            <div class="kpi">
+              <div class="lbl">Tổng dư nợ <span class="ic red" style="margin-left:auto">⚠️</span></div>
+              <div class="val" id="debtKpiTotal" style="color:var(--red)">0</div>
+              <div class="delta down" id="debtKpiTotalSub">—</div>
+            </div>
+            <div class="kpi">
+              <div class="lbl">Nợ đại lý <span class="ic purple" style="margin-left:auto">🏷️</span></div>
+              <div class="val" id="debtKpiAgent">0</div>
+              <div class="delta" id="debtKpiAgentSub">—</div>
+            </div>
+            <div class="kpi">
+              <div class="lbl">Nợ khách lẻ <span class="ic amber" style="margin-left:auto">◉</span></div>
+              <div class="val" id="debtKpiRetail">0</div>
+              <div class="delta" id="debtKpiRetailSub">—</div>
+            </div>
+            <div class="kpi">
+              <div class="lbl">Khách đang nợ <span class="ic blue" style="margin-left:auto">◔</span></div>
+              <div class="val" id="debtKpiCount">0</div>
+              <div class="delta" id="debtKpiCountSub">—</div>
+            </div>
+          </div>
+
           <div class="panel">
             <div class="head">
               <div class="title">
-                <h2>Bảng tổng hợp kinh doanh</h2><span class="sub">Theo danh mục sản phẩm</span>
-              </div><button type="button" class="btn ghost" onclick="exportReport()">⬇ Xuất Excel</button>
+                <h2>Danh sách khách nợ</h2><span class="sub" id="debtMobileSub">—</span>
+              </div>
+              <div style="display:flex;gap:8px">
+                <button type="button" class="btn ghost sm" onclick="exportCustomers()">⬇ Excel</button>
+                <button type="button" class="btn ghost sm" onclick="switchView('khachhang')">Quản lý KH →</button>
+              </div>
             </div>
-            <div class="table-wrap" id="reportBody"></div>
-            <div class="pager" id="reportPager"></div>
+            <div class="table-toolbar">
+              <div class="search"><span style="color:var(--dim)">⌕</span><input id="debtSearch"
+                  placeholder="Tìm tên hoặc số điện thoại..." oninput="renderCongNo()"></div>
+            </div>
+            <div id="debtListEl"></div>
           </div>
         </section>
+      </div>
+    </div>
+
+    <!-- Thanh điều hướng dưới cùng (chỉ hiện trên điện thoại) -->
+    <nav class="tabbar" id="mobileTabbar">
+      <button type="button" class="tab-item" data-tab="dashboard" onclick="switchView('dashboard')">
+        <span class="tab-ic">▩</span><span class="tab-lb">Tổng quan</span>
+      </button>
+      <button type="button" class="tab-item" data-tab="doanhthu" onclick="switchView('doanhthu')">
+        <span class="tab-ic">₫</span><span class="tab-lb">Doanh thu</span>
+      </button>
+      <button type="button" class="tab-item" data-tab="congno" onclick="switchView('congno')">
+        <span class="tab-ic">⚠</span><span class="tab-lb">Dư nợ</span>
+      </button>
+      <button type="button" class="tab-item" data-tab="more" onclick="openMoreSheet()">
+        <span class="tab-ic">☰</span><span class="tab-lb">Thêm</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- Sheet "Thêm" (menu phụ trên điện thoại) -->
+  <div class="sheet-overlay" id="moreSheet" onclick="if(event.target===this)closeMoreSheet()">
+    <div class="sheet">
+      <div class="sheet-grab"></div>
+      <div class="sheet-head">
+        <h3>Chức năng khác</h3><span class="close-x" onclick="closeMoreSheet()">✕</span>
+      </div>
+      <div class="sheet-body">
+        <div class="sheet-grid">
+          <button type="button" class="sheet-item" onclick="moreGo('sanpham')"><span class="si-ic">▤</span><span>Sản
+              phẩm &amp; Tồn kho</span></button>
+          <button type="button" class="sheet-item" onclick="moreGo('danhmuc')"><span class="si-ic">▦</span><span>Danh
+              mục</span></button>
+          <button type="button" class="sheet-item" onclick="moreGo('hoadon')"><span class="si-ic">▧</span><span>Hóa đơn
+              bán</span></button>
+          <button type="button" class="sheet-item" onclick="moreGo('khachhang')"><span class="si-ic">◉</span><span>Khách
+              hàng</span></button>
+          <button type="button" class="sheet-item" onclick="moreGo('caidat')"><span class="si-ic">⚙</span><span>Cài đặt
+              cửa hàng</span></button>
+          <button type="button" class="sheet-item" onclick="moreGo('saoluu')"><span class="si-ic">⛁</span><span>Sao lưu
+              &amp; dữ liệu</span></button>
+        </div>
+        <div class="sheet-sep"></div>
+        <button type="button" class="sheet-row" id="sheetAuthBtn" onclick="closeMoreSheet(); onAuthButtonClick()">🔑
+          Đăng nhập quản lý</button>
+        <button type="button" class="sheet-row" onclick="closeMoreSheet(); toggleTheme()">🌗 Chuyển giao diện Sáng /
+          Tối</button>
+        <div class="sheet-note" id="sheetUserInfo">—</div>
       </div>
     </div>
   </div>
 
   <!-- ============ MODALS & POPUPS ============ -->
+
+  <!-- Modal đăng nhập quản lý -->
+  <div class="overlay" id="loginModal">
+    <div class="modal" style="max-width:400px">
+      <div class="m-head">
+        <h3>🔑 Đăng nhập quản lý</h3><span class="close-x" onclick="closeModal('loginModal')">✕</span>
+      </div>
+      <div class="m-body">
+        <div style="font-size:13px;color:var(--muted);margin-bottom:12px;line-height:1.6">
+          Nhập mật khẩu quản lý để mở các mục <b>Kho, Khách hàng, Báo cáo, Cài đặt và Sao lưu</b>.
+        </div>
+        <div class="form-row one">
+          <div>
+            <label>Mật khẩu quản lý *</label>
+            <input id="loginPassword" type="password" placeholder="Nhập mật khẩu" maxlength="60"
+              autocomplete="current-password" onkeydown="if(event.key==='Enter'){event.preventDefault();submitLogin();}">
+            <div id="loginError" class="invalid-feedback" style="display:none"></div>
+          </div>
+        </div>
+        <div class="hint-box" style="margin-top:4px">
+          Mật khẩu mặc định ban đầu là <b>123456</b>. Vào <b>Cài đặt cửa hàng</b> để đổi mật khẩu.
+        </div>
+      </div>
+      <div class="m-foot">
+        <button type="button" class="btn ghost" onclick="closeModal('loginModal')">Hủy</button>
+        <button type="button" class="btn" onclick="submitLogin()">Đăng nhập</button>
+      </div>
+    </div>
+  </div>
+
   <div class="overlay" id="categoryModal">
     <div class="modal">
       <div class="m-head">
@@ -408,8 +953,7 @@
       </div>
       <div class="m-body">
         <div class="form-row one">
-          <div><label>Tên danh mục *</label><input id="catName" placeholder="Ví dụ: Tủ lạnh" required maxlength="100">
-          </div>
+          <div><label>Tên danh mục *</label><input id="catName" placeholder="Ví dụ: Tủ lạnh" maxlength="100"></div>
         </div>
         <div class="form-row">
           <div><label>Kiểu hàng hóa *</label><select id="catType" onchange="onCatTypeChange()">
@@ -419,8 +963,9 @@
               <option value="area">Diện tích</option>
               <option value="volume">Thể tích</option>
             </select></div>
-          <div><label>Đơn vị bán *</label><input id="catUnit" list="unitList" placeholder="Ví dụ: cái" required
-              maxlength="20"><datalist id="unitList"></datalist></div>
+          <div><label>Đơn vị bán *</label><input id="catUnit" list="unitList" placeholder="Ví dụ: cái" maxlength="20">
+            <datalist id="unitList"></datalist>
+          </div>
         </div>
         <div class="form-row one">
           <div><label>Mô tả ghi chú</label><input id="catDesc" placeholder="Mô tả ngắn (tùy chọn)" maxlength="255">
@@ -440,7 +985,7 @@
       </div>
       <div class="m-body">
         <div class="form-row one">
-          <div><label>Tên sản phẩm *</label><input id="prodName" placeholder="Ví dụ: Tủ lạnh Panasonic 320L" required
+          <div><label>Tên sản phẩm *</label><input id="prodName" placeholder="Ví dụ: Tủ lạnh Panasonic 320L"
               maxlength="150"></div>
         </div>
         <div class="form-row">
@@ -448,16 +993,21 @@
           <div><label>Thương hiệu</label><input id="prodBrand" placeholder="Ví dụ: Panasonic" maxlength="80"></div>
         </div>
         <div class="form-row">
-          <div><label>Giá nhập (₫) *</label><input id="prodCost" type="number" min="0" step="1000" value="0" required>
-          </div>
-          <div><label>Giá bán (₫) *</label><input id="prodPrice" type="number" min="0" step="1000" value="0" required>
-          </div>
+          <div><label>Giá nhập (₫) *</label><input id="prodCost" type="number" min="0" step="1000" value="0"></div>
+          <div><label>Giá bán (₫) *</label><input id="prodPrice" type="number" min="0" step="1000" value="0"></div>
         </div>
-        <div class="form-row">
-          <div><label>Số lượng tồn kho *</label><input id="prodStock" type="number" min="0" step="1" value="0" required>
-          </div>
+        <div class="form-row" id="prodStockWrap">
+          <div><label>Số lượng tồn kho ban đầu *</label><input id="prodStock" type="number" min="0" step="1"
+              value="0"></div>
           <div><label>Đơn vị tính</label><input id="prodUnit" disabled placeholder="—"></div>
         </div>
+        <div class="form-row one">
+          <div>
+            <label>Ngưỡng cảnh báo sắp hết hàng</label>
+            <input id="prodMinStock" type="number" min="0" step="1" placeholder="5">
+          </div>
+        </div>
+        <div id="prodStockHint" class="hint-box" style="display:none"></div>
         <div class="form-row one">
           <div><label>Quy cách / ghi chú đơn vị đo</label><input id="prodSpec"
               placeholder="Ví dụ: 1 bao = 25kg, 1 cuộn = 50m..." maxlength="200"></div>
@@ -476,7 +1026,7 @@
       </div>
       <div class="m-body">
         <div class="form-row one">
-          <div><label>Họ và tên khách hàng *</label><input id="custName" placeholder="Ví dụ: Nguyễn Văn An" required
+          <div><label>Họ và tên khách hàng *</label><input id="custName" placeholder="Ví dụ: Nguyễn Văn An"
               maxlength="100"></div>
         </div>
         <div class="form-row one">
@@ -489,8 +1039,13 @@
         <div class="form-row one">
           <div><label>Loại khách hàng *</label><select id="custType">
               <option value="retail">Khách lẻ (mua thông thường)</option>
-              <option value="agent">Đại lý (mua sỉ, hưởng chiết khấu)</option>
+              <option value="agent">Đại lý (mua sỉ, được áp dụng chiết khấu)</option>
             </select></div>
+        </div>
+        <div class="form-row one" id="custDebtWrap">
+          <div><label>Dư nợ ban đầu (₫) <span style="font-size:11px;color:var(--muted)">(nếu khách đang nợ từ
+                trước)</span></label><input id="custDebt" type="number" min="0" step="1000" placeholder="0"
+              value="0"></div>
         </div>
       </div>
       <div class="m-foot"><button type="button" class="btn ghost"
@@ -499,35 +1054,120 @@
     </div>
   </div>
 
+  <!-- Modal Thu nợ khách hàng -->
+  <div class="overlay" id="settleDebtModal">
+    <div class="modal" style="max-width:440px">
+      <div class="m-head">
+        <h3 id="settleDebtTitle">Thu nợ khách hàng</h3><span class="close-x"
+          onclick="closeModal('settleDebtModal')">✕</span>
+      </div>
+      <div class="m-body" style="padding:16px">
+        <div
+          style="background:var(--brand-soft);border:1px solid var(--line2);border-radius:8px;padding:12px;margin-bottom:12px">
+          <div style="font-size:12px;color:var(--muted)">Khách hàng:</div>
+          <div id="settleCustName" style="font-size:16px;font-weight:700;color:var(--brand);margin-bottom:6px"></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:14px">
+            <span>Dư nợ hiện tại:</span>
+            <b id="settleCustCurrentDebt" style="font-size:16px;color:var(--red)">0₫</b>
+          </div>
+        </div>
+        <div class="form-row one">
+          <div>
+            <label>Số tiền khách trả (₫) *</label>
+            <div style="display:flex;gap:8px;margin-bottom:6px">
+              <input id="settleAmount" type="number" min="1000" step="1000" placeholder="Nhập số tiền..."
+                style="font-size:16px;font-weight:700;color:var(--brand);flex:1">
+              <button type="button" class="btn ghost sm" onclick="setFullSettleAmount()">Trả hết</button>
+            </div>
+          </div>
+        </div>
+        <div class="form-row one">
+          <div>
+            <label>Phương thức thu tiền</label>
+            <select id="settleMethod">
+              <option value="cash">💵 Tiền mặt</option>
+              <option value="transfer">💳 Chuyển khoản</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row one">
+          <div>
+            <label>Ghi chú thu nợ</label>
+            <input id="settleNote" placeholder="Ví dụ: Khách ghé cửa hàng trả bớt nợ..." maxlength="200">
+          </div>
+        </div>
+      </div>
+      <div class="m-foot">
+        <button type="button" class="btn ghost" onclick="closeModal('settleDebtModal')">Hủy</button>
+        <button type="button" class="btn green" onclick="confirmSettleDebt()">✓ Xác nhận thu tiền</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Kiểm kho -->
+  <div class="overlay" id="stockAuditModal">
+    <div class="modal" style="max-width:460px">
+      <div class="m-head">
+        <h3 id="auditTitle">Kiểm kho</h3><span class="close-x" onclick="closeModal('stockAuditModal')">✕</span>
+      </div>
+      <div class="m-body">
+        <div id="auditInfo" class="hint-box" style="margin-bottom:12px"></div>
+        <div class="form-row one">
+          <div>
+            <label>Số lượng đếm thực tế *</label>
+            <input id="auditActual" type="number" min="0" step="1" oninput="previewAudit()">
+          </div>
+        </div>
+        <div class="form-row one">
+          <div>
+            <label>Lý do điều chỉnh</label>
+            <input id="auditReason" placeholder="Ví dụ: Hàng hỏng, mất mát, đếm lại kho..." maxlength="200">
+          </div>
+        </div>
+        <div id="auditPreview" style="margin-top:6px"></div>
+      </div>
+      <div class="m-foot">
+        <button type="button" class="btn ghost" onclick="closeModal('stockAuditModal')">Hủy</button>
+        <button type="button" class="btn green" onclick="confirmStockAudit()">✓ Xác nhận điều chỉnh</button>
+      </div>
+    </div>
+  </div>
+
   <div class="overlay" id="invViewModal">
     <div class="modal" style="width:620px;background:var(--bg)">
       <div class="m-head">
-        <h3>Hóa đơn bán hàng</h3><span class="close-x" onclick="closeModal('invViewModal')">✕</span>
+        <h3>Xem phiếu</h3><span class="close-x" onclick="closeModal('invViewModal')">✕</span>
       </div>
       <div class="m-body" style="padding:20px">
+        <div id="invStatusActions"
+          style="display:flex;gap:10px;justify-content:center;align-items:center;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--line2);flex-wrap:wrap">
+        </div>
         <div id="printArea"></div>
         <div class="inv-printopts"><label>Khổ giấy in</label><select id="printPaper"
             onchange="setPrintPaper(this.value)">
             <option value="A4">A4 (210 × 297 mm)</option>
             <option value="A5">A5 (148 × 210 mm)</option>
             <option value="A3">A3 (297 × 420 mm)</option>
+            <option value="K80">K80 (80mm - Bill nhiệt)</option>
           </select></div>
-        <div class="inv-actions"><button type="button" class="btn ghost" onclick="printInvoice()">🖨 In hóa
-            đơn</button><button type="button" class="btn" onclick="exportOneInvoice()">⬇ Xuất Excel</button></div>
+        <div class="inv-actions"><button type="button" class="btn ghost" onclick="printInvoice()">🖨 In
+            phiếu</button><button type="button" class="btn" onclick="exportOneInvoice()">⬇ Xuất Excel</button></div>
       </div>
     </div>
   </div>
 
   <div class="toast" id="toast"></div>
 
-  <!-- Scripts Module Architecture (Offline Chart.js & Modular JS) -->
+  <!-- Chart.js chạy offline, không cần internet -->
   <script src="lib/chart.umd.js"></script>
-   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <!-- Firebase (chạy offline vẫn mở app bình thường; chỉ đồng bộ khi có mạng) -->
+  <script src="lib/firebase-app-compat.js"></script>
+  <script src="lib/firebase-firestore-compat.js"></script>
+  <script src="js/cloud.js"></script>
   <script src="js/data.js"></script>
   <script src="js/pos.js"></script>
   <script src="js/app.js"></script>
- 
+  <script src="js/pcsync.js"></script>
 </body>
 
 </html>
